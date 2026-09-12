@@ -88,9 +88,9 @@ async function main() {
   r = await call(`/api/games/${slug}`);
   check('详情接口', r.status === 200 && r.data?.game?.plays >= 1 && r.data?.files?.length === 2, r.text.slice(0, 120));
 
-  // 9. 路径越界防护
+  // 9. 路径越界防护(Express 可能在路由层直接规范化拒绝(404),也可能由处理器拒绝(400),两者都安全)
   r = await call(`/api/games/${slug}/files/%2e%2e/evil.txt`, { method: 'PUT', headers: { 'Content-Type': 'text/plain' }, body: 'x' });
-  check('路径越界被拒', r.status === 400, `status=${r.status}`);
+  check('路径越界被拒', r.status === 400 || r.status === 404, `status=${r.status}`);
 
   // 10. 删除游戏(清理)
   r = await call(`/api/games/${slug}`, { method: 'DELETE' });
