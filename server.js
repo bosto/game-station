@@ -268,6 +268,15 @@ app.post('/api/games/:slug/play', (req, res) => {
 });
 
 // ---------- API: 状态与配置 ----------
+// 健康检查(公开,供 CI/CD 与监控探测)
+app.get('/api/health', (req, res) => {
+  res.json({
+    ok: true,
+    games: db.prepare('SELECT COUNT(*) c FROM games').get().c,
+    liveGames: db.prepare('SELECT COUNT(*) c FROM games WHERE playable = 1').get().c,
+  });
+});
+
 app.get('/api/stats/overview', adminAuth, (req, res) => {
   res.json({
     totalGames: db.prepare('SELECT COUNT(*) c FROM games').get().c,

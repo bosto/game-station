@@ -1,0 +1,53 @@
+name: deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-game-station
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: macos-local # 本机 self-hosted runner(label: macos-local)
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: 安装依赖
+        run: npm ci
+
+      - name: 新代码冒烟测试(临时端口 3211,不打扰线上服务)
+        run: |
+          cp config.example.json config.json
+          node -e "const fs=require('fs');const c=JSON.parse(fs.readFileSync('config.json'));c.port=3211;c.adminToken='ci-token';c.adminPass='ci-pass-123';fs.writeFileSync('config.json',JSON.stringify(c))"
+          node server.js & SERVER_PID=$!
+          trap "kill $SERVER_PID 2>/dev/null || true" EXIT
+          for i in $(seq 1 20); do
+            curl -sf http://127.0.0.1:3211/api/health >/dev/null 2>&1 && break
+            sleep 1
+          done
+          node scripts/smoke.mjs --url http://127.0.0.1:3211 --token ci-token
+
+      - name: 部署到本机
+        run: bash scripts/deploy.sh
+
+      - name: 公网健康检查
+        run: |
+          for i in $(seq 1 20); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 https://game.bosto.chat/api/health 2>/dev/null || true)
+            if [ "${code}" = "200" ]; then
+              echo "✅ https://game.bosto.chat 已恢复"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "❌ 公网健康检查失败" >&2
+          exit 1
