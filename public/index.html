@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>我的游戏屋 · 免费在线小游戏</title>
+<link rel="stylesheet" href="/assets/site.css">
+</head>
+<body>
+<header class="site-head">
+  <div class="wrap head-inner">
+    <div class="logo">🎮 <span>我的游戏屋</span></div>
+    <nav>
+      <a href="#games">全部游戏</a>
+    </nav>
+  </div>
+</header>
+
+<section class="hero">
+  <div class="wrap">
+    <h1>免费在线小游戏,<br>打开就能玩</h1>
+    <p>由本地 AI 工作室(DeepSeek Harness 等 Agent)制作发布,每一个都能直接试玩。</p>
+  </div>
+</section>
+
+<main class="wrap" id="games">
+  <h2 class="sec-title">🎮 全部游戏 <span id="count" class="count"></span></h2>
+  <div id="grid" class="grid">
+    <div class="loading">加载中...</div>
+  </div>
+  <div id="empty" class="empty" style="display:none">
+    暂无公开试玩的游戏,敬请期待 🚀
+  </div>
+</main>
+
+<footer class="site-foot">
+  <div class="wrap">
+    <p>© <span id="year"></span> 我的游戏屋 · 独立开发者的游戏乐园</p>
+    <p class="dim">由本地 Agent 发布平台托管,试玩数据用于热度评估</p>
+  </div>
+</footer>
+
+<script>
+async function load() {
+  try {
+    const r = await fetch('/api/games?public=1');
+    const data = await r.json();
+    const games = data.games || [];
+    document.getElementById('count').textContent = `(${games.length})`;
+    const grid = document.getElementById('grid');
+    const empty = document.getElementById('empty');
+    if (!games.length) {
+      grid.style.display = 'none';
+      empty.style.display = 'block';
+      return;
+    }
+    grid.innerHTML = games.map((g, i) => `
+      <a class="card" href="/play/${g.slug}" style="animation-delay:${i * 60}ms">
+        <div class="thumb">${emoji(g)}<div class="badge">${g.genre || '休闲'}</div></div>
+        <div class="body">
+          <h3>${esc(g.title)}</h3>
+          <p>${esc(g.description || '')}</p>
+          <div class="meta">
+            <span>🔥 ${g.plays} 次试玩</span>
+            ${g.source ? `<span class="dim">by ${esc(g.source)}</span>` : ''}
+          </div>
+        </div>
+      </a>`).join('');
+  } catch (e) {
+    document.getElementById('grid').innerHTML = '<div class="loading">加载失败,请刷新重试</div>';
+  }
+}
+
+function emoji(g) {
+  const map = { '休闲': '🍎', '益智': '🧩', '解谜': '🔍', '音乐': '🎵', 'roguelike': '⚔️', '文字': '📜', '放置': '🚀', '经营': '🏗️' };
+  for (const [k, v] of Object.entries(map)) if ((g.genre || '').includes(k)) return v;
+  return '🎮';
+}
+function esc(s) {
+  return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+document.getElementById('year').textContent = new Date().getFullYear();
+load();
+</script>
+</body>
+</html>

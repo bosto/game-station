@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>游戏发布站 · 管理后台</title>
+<link rel="stylesheet" href="/assets/admin.css?v=4">
+</head>
+<body>
+
+<!-- 顶栏 -->
+<div class="topbar">
+  <span class="brand">🎮 游戏发布站 <em>Agent Hub</em></span>
+  <button class="tab-btn active" data-tab="games">📦 游戏管理</button>
+  <button class="tab-btn" data-tab="settings">⚙️ 设置</button>
+  <span class="spacer"></span>
+  <a class="site-link" href="/" target="_blank">🌐 公开主页 ↗</a>
+</div>
+
+<main>
+  <!-- 登录弹窗 -->
+  <div class="modal-mask" id="login-mask">
+    <div class="modal" style="max-width:420px">
+      <div class="modal-head"><h2>🔐 管理员登录</h2></div>
+      <div class="modal-body">
+        <p style="color:var(--dim);margin-bottom:14px;line-height:1.7">请输入管理员账号密码登录。</p>
+        <label class="f"><span>用户名</span><input id="login-user" placeholder="admin" autocomplete="username"></label>
+        <label class="f"><span>密码</span><input id="login-pass" type="password" placeholder="••••••" autocomplete="current-password" onkeydown="if(event.key==='Enter')submitLogin()"></label>
+        <div id="login-error" style="color:var(--red);font-size:13px;margin-bottom:8px;display:none"></div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn primary" onclick="submitLogin()" style="width:100%">🔓 登录</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 游戏管理 -->
+  <section class="tab-page active" id="tab-games">
+    <div class="stats">
+      <div class="stat accent"><div class="v" id="ov-total">-</div><div class="k">已发布游戏</div></div>
+      <div class="stat"><div class="v" id="ov-live">-</div><div class="k">公开试玩中</div></div>
+      <div class="stat green"><div class="v" id="ov-plays">-</div><div class="k">累计试玩</div></div>
+      <div class="stat"><div class="v" id="ov-today">-</div><div class="k">今日试玩</div></div>
+    </div>
+    <div class="ideas-head">
+      <h2>📦 游戏列表</h2>
+      <span class="spacer"></span>
+      <button class="btn primary" onclick="openCreate()">＋ 手动发布游戏</button>
+    </div>
+    <div class="hint-box" style="margin-bottom:16px">
+      本平台供 <b>本地 Agent(DeepSeek Harness / Claude Code 等)</b> 发布游戏。Agent 发布方式见 <b>设置 → Agent 发布说明</b>。
+      游戏文件放在 <code>games/&lt;slug&gt;/</code>,入口必须是 <code>index.html</code>,勾选「公开试玩」后玩家即可通过 <code>/play/&lt;slug&gt;</code> 游玩。
+    </div>
+    <table>
+      <thead>
+        <tr><th>游戏</th><th>类型</th><th>发布者</th><th>试玩</th><th>状态</th><th>操作</th></tr>
+      </thead>
+      <tbody id="game-tbody"></tbody>
+    </table>
+    <div id="game-empty" class="empty-tip">还没有任何游戏,点击「＋ 手动发布游戏」或让 Agent 用发布脚本上传。</div>
+  </section>
+
+  <!-- 设置 -->
+  <section class="tab-page" id="tab-settings">
+    <div class="set-card">
+      <h3>🤖 Agent 发布说明</h3>
+      <div class="hint-box">
+        Agent 在写好游戏后,把本地目录发布上来即可(无需本后台):<br>
+        ① 命令行发布(推荐):<br>
+        &nbsp;&nbsp;<code>GAME_STATION_TOKEN=你的令牌 node scripts/publish.mjs /path/to/game-dir --title "游戏名" --publish</code><br>
+        ② 或直接调用 HTTP API:<br>
+        &nbsp;&nbsp;<code>curl -X POST http://127.0.0.1:3210/api/games -H "x-admin-token: 令牌" -H "Content-Type: application/json" -d '{"slug":"my-game","title":"我的游戏"}'</code><br>
+        &nbsp;&nbsp;<code>curl -X PUT --data-binary @index.html "http://127.0.0.1:3210/api/games/my-game/files/index.html" -H "x-admin-token: 令牌"</code><br>
+        &nbsp;&nbsp;<code>curl -X PATCH http://127.0.0.1:3210/api/games/my-game -H "x-admin-token: 令牌" -H "Content-Type: application/json" -d '{"playable":true}'</code><br>
+        完整接口与规范见项目根目录 <code>AGENTS.md</code>。
+      </div>
+    </div>
+    <div class="set-card">
+      <h3>🔐 账号安全</h3>
+      <div class="set-row">
+        <label class="f" style="width:160px"><span>用户名</span><input id="s-user" readonly></label>
+        <label class="f" style="width:200px"><span>当前密码</span><input id="s-old-pass" type="password" placeholder="输入当前密码" autocomplete="current-password"></label>
+        <label class="f" style="width:200px"><span>新密码(至少 6 位)</span><input id="s-new-pass" type="password" placeholder="新密码" autocomplete="new-password"></label>
+        <button class="btn primary" onclick="changePassword()">💾 修改密码</button>
+      </div>
+      <div class="set-row" style="margin-top:14px">
+        <input id="s-token" type="text" readonly style="flex:1;font-family:ui-monospace,Menlo,monospace;color:#9db0ff">
+        <button class="btn" onclick="copyToken()">📋 复制令牌</button>
+        <button class="btn gold" onclick="regenerateToken()">🔄 重新生成</button>
+        <button class="btn red" onclick="logoutAdmin()">🚪 退出登录</button>
+      </div>
+    </div>
+  </section>
+</main>
+
+<!-- 游戏详情弹窗 -->
+<div class="modal-mask" id="detail-mask">
+  <div class="modal">
+    <div class="modal-head"><h2 id="d-title">游戏详情</h2><button class="modal-close" onclick="closeDetail()">×</button></div>
+    <div class="modal-body">
+      <div class="detail-grid">
+        <div>
+          <h3>基本信息</h3>
+          <label class="f"><span>标题</span><input id="d-f-title"></label>
+          <label class="f"><span>类型</span><input id="d-f-genre"></label>
+          <label class="f"><span>发布者(source)</span><input id="d-f-source" placeholder="dsh / claude / 手动"></label>
+          <label class="f"><span>简介</span><textarea id="d-f-desc" rows="3"></textarea></label>
+          <label class="check" style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+            <input type="checkbox" id="d-f-playable" style="width:16px;height:16px;accent-color:#6c7cff">
+            <span>公开试玩(玩家可通过 /play/&lt;slug&gt; 访问)</span>
+          </label>
+          <div class="play-links">
+            <div class="link-box">试玩页 <code id="d-play-url">-</code></div>
+            <div class="link-box">入口文件 <code id="d-file-url">-</code></div>
+          </div>
+          <h3>上传 / 覆盖 index.html(手动)</h3>
+          <textarea id="d-html" rows="10" style="width:100%;background:#0c0f1a;border:1px solid var(--line);border-radius:10px;padding:12px;color:#b8c2d9;font-family:ui-monospace,Menlo,monospace;font-size:12px;white-space:pre"></textarea>
+          <div style="display:flex;gap:8px;margin-top:8px">
+            <button class="btn primary sm" onclick="saveHtml()">💾 保存 index.html</button>
+            <span style="color:var(--dim);font-size:12px;align-self:center">Agent 一般用 API/脚本上传,这里仅供人工微调</span>
+          </div>
+        </div>
+        <div>
+          <h3>文件列表</h3>
+          <div id="d-files" class="idea-card" style="max-height:220px;overflow-y:auto"></div>
+          <h3>近 14 天试玩</h3>
+          <div class="bars" id="d-bars"></div>
+          <p style="color:var(--dim);font-size:12px;margin-top:24px">累计试玩 <b id="d-plays" style="color:var(--accent2)">0</b> 次</p>
+        </div>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn red" id="d-delete" style="margin-right:auto" onclick="deleteGame()">🗑 删除游戏</button>
+      <button class="btn" onclick="closeDetail()">关闭</button>
+      <button class="btn primary" onclick="saveDetail()">💾 保存修改</button>
+    </div>
+  </div>
+</div>
+
+<!-- 手动发布弹窗 -->
+<div class="modal-mask" id="create-mask">
+  <div class="modal" style="max-width:520px">
+    <div class="modal-head"><h2>🚀 手动发布游戏</h2><button class="modal-close" onclick="closeCreate()">×</button></div>
+    <div class="modal-body">
+      <label class="f"><span>游戏标题 *</span><input id="c-title" placeholder="例如:像素地牢闯关"></label>
+      <label class="f"><span>URL 标识 slug(可选,小写英文,留空自动生成)</span><input id="c-slug" placeholder="pixel-dungeon" pattern="[a-z0-9-]+"></label>
+      <label class="f"><span>类型</span><input id="c-genre" placeholder="休闲 / 益智 / roguelike..."></label>
+      <label class="f"><span>简介</span><textarea id="c-desc" rows="3" placeholder="一句话描述玩法"></textarea></label>
+      <div class="hint-box">创建后请到游戏详情里上传 <code>index.html</code>(或让 Agent 用发布脚本上传整个目录),再勾选「公开试玩」。</div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" onclick="closeCreate()">取消</button>
+      <button class="btn primary" onclick="createGame()">✅ 创建</button>
+    </div>
+  </div>
+</div>
+
+<!-- toast -->
+<div class="toast" id="toast"></div>
+
+<script src="/assets/admin.js?v=4"></script>
+</body>
+</html>

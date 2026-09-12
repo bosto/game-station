@@ -1,0 +1,63 @@
+* { margin: 0; padding: 0; box-sizing: border-box; }
+:root {
+  --bg: #0f1220;
+  --panel: #1a1f35;
+  --panel2: #232a47;
+  --line: #2e3658;
+  --text: #e8ebff;
+  --dim: #9aa3c7;
+  --accent: #6c7cff;
+  --accent2: #ffb400;
+  --radius: 14px;
+}
+body {
+  font-family: -apple-system, "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  background: radial-gradient(1200px 600px at 80% -10%, #1c2350 0%, var(--bg) 55%);
+  color: var(--text);
+  min-height: 100vh;
+}
+.wrap { max-width: 1100px; margin: 0 auto; padding: 0 20px; }
+
+/* 头 */
+.site-head { border-bottom: 1px solid var(--line); background: rgba(15,18,32,.75); backdrop-filter: blur(8px); position: sticky; top: 0; z-index: 20; }
+.head-inner { display: flex; align-items: center; justify-content: space-between; height: 60px; }
+.logo { font-weight: 800; font-size: 20px; letter-spacing: .5px; }
+.logo span { background: linear-gradient(90deg, #6c7cff, #ff9bd8); -webkit-background-clip: text; background-clip: text; color: transparent; }
+nav a { color: var(--dim); text-decoration: none; margin-left: 18px; font-size: 14px; transition: color .15s; }
+nav a:hover { color: var(--text); }
+.admin-link { padding: 6px 12px; border: 1px solid var(--line); border-radius: 20px; }
+
+/* Hero */
+.hero { padding: 60px 0 40px; }
+.hero h1 { font-size: clamp(30px, 5vw, 48px); line-height: 1.25; background: linear-gradient(90deg, #fff, #b8c2ff); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.hero p { margin-top: 14px; color: var(--dim); font-size: 16px; max-width: 560px; line-height: 1.7; }
+
+.sec-title { margin: 10px 0 24px; font-size: 24px; }
+.count { color: var(--dim); font-size: 15px; font-weight: 400; }
+
+/* 卡片 */
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 22px; padding-bottom: 60px; }
+.card {
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+  overflow: hidden; text-decoration: none; color: var(--text);
+  transition: transform .18s, box-shadow .18s, border-color .18s;
+  animation: rise .5s ease both;
+}
+.card:hover { transform: translateY(-4px); box-shadow: 0 14px 40px rgba(108,124,255,.18); border-color: var(--accent); }
+@keyframes rise { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
+.thumb {
+  height: 150px; display: flex; align-items: center; justify-content: center; font-size: 60px;
+  background: linear-gradient(135deg, #232a47, #181d38); position: relative;
+}
+.thumb .badge { position: absolute; left: 12px; top: 12px; font-size: 12px; padding: 4px 10px; border-radius: 20px; background: rgba(15,18,32,.7); color: var(--accent2); border: 1px solid rgba(255,180,0,.3); }
+.card .body { padding: 16px 18px 18px; }
+.card h3 { font-size: 18px; margin-bottom: 8px; }
+.card p { color: var(--dim); font-size: 13.5px; line-height: 1.65; min-height: 42px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.card .meta { display: flex; align-items: center; justify-content: space-between; margin-top: 14px; font-size: 12.5px; color: var(--dim); }
+.stage { padding: 4px 10px; border-radius: 20px; background: color-mix(in srgb, var(--c) 18%, transparent); color: var(--c); border: 1px solid color-mix(in srgb, var(--c) 45%, transparent); }
+
+.loading, .empty { color: var(--dim); text-align: center; padding: 60px 0; }
+.empty { font-size: 17px; }
+
+.site-foot { border-top: 1px solid var(--line); padding: 28px 0 40px; color: var(--dim); font-size: 13.5px; line-height: 1.9; }
+.dim { opacity: .7; }

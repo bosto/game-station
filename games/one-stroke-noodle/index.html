@@ -1,0 +1,545 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>一笔泡面 · One-Stroke Noodle</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: linear-gradient(180deg, #2b1d0e 0%, #4a2f14 55%, #6b4423 100%);
+    min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    font-family: -apple-system, "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+    touch-action: none; overflow: hidden; user-select: none;
+  }
+  #wrap { position: relative; width: 100%; max-width: 430px; }
+  canvas { display: block; width: 100%; height: auto; border-radius: 14px; box-shadow: 0 10px 40px rgba(0,0,0,.5); background: #f7e8c8; }
+  /* HUD */
+  #hud {
+    display: flex; align-items: center; gap: 10px; width: 100%; padding: 10px 6px 8px;
+    color: #ffe9c9; font-weight: 700;
+  }
+  #hud .chip { background: rgba(0,0,0,.25); border-radius: 10px; padding: 6px 10px; font-size: 13px; }
+  #hud .grow { flex: 1; }
+  #hud #score { font-size: 20px; color: #ffd75e; }
+  #hud #combo { font-size: 13px; color: #7ef0a2; min-width: 74px; text-align: center; }
+  #timebar { height: 5px; background: rgba(0,0,0,.3); border-radius: 3px; overflow: hidden; margin-bottom: 6px; }
+  #timefill { height: 100%; width: 100%; background: linear-gradient(90deg, #ff8a3d, #ffd75e); border-radius: 3px; transition: width .1s linear; }
+  /* 覆盖层 */
+  .overlay {
+    position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 12px; text-align: center; background: rgba(43,29,14,.72); color: #fff; border-radius: 14px;
+    backdrop-filter: blur(3px); padding: 20px; z-index: 10;
+  }
+  .overlay h1 { font-size: 34px; letter-spacing: 3px; text-shadow: 0 3px 0 rgba(0,0,0,.4); }
+  .overlay h2 { font-size: 24px; }
+  .overlay p { font-size: 13.5px; line-height: 1.8; color: #e8d9b8; max-width: 330px; }
+  .overlay .big { font-size: 40px; font-weight: 800; color: #ffd75e; }
+  .overlay .rate { font-size: 22px; font-weight: 700; }
+  button {
+    background: linear-gradient(180deg, #ffb400, #f09000); border: none; color: #3a2600; font-weight: 800;
+    font-size: 18px; padding: 13px 38px; border-radius: 30px; cursor: pointer; box-shadow: 0 5px 0 #b06c00;
+    transition: transform .08s, box-shadow .08s; margin-top: 6px;
+  }
+  button:active { transform: translateY(4px); box-shadow: 0 1px 0 #b06c00; }
+  .hint { font-size: 12px; opacity: .75; }
+  .rounds { display: flex; gap: 8px; margin-top: 4px; }
+  .rounds .r { background: rgba(255,255,255,.12); border-radius: 8px; padding: 6px 10px; font-size: 12px; }
+  .rounds .r b { color: #ffd75e; }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <div id="timebar"><div id="timefill"></div></div>
+  <div id="hud">
+    <span class="chip" id="roundChip">第 1 关 · 慢火</span>
+    <span class="grow"></span>
+    <span id="score">0</span><span class="chip">分</span>
+    <span id="combo">连击 ×1</span>
+    <span class="chip" id="catchChip">🍜 0/3</span>
+  </div>
+  <canvas id="cv"></canvas>
+
+  <div class="overlay" id="titleOverlay">
+    <h1>🍜 一笔泡面</h1>
+    <p>
+      <b>画一笔</b> → 线条变面条下锅<br>
+      面条从 <span style="color:#b8c4cc">夹生</span> 煮到 <span style="color:#ffd75e">Q弹</span> 再到 <span style="color:#b08968">太软</span><br>
+      <b>在面条发光时点击夹起</b>,拿高分!
+    </p>
+    <div class="rounds">
+      <span class="r">1️⃣ 慢火 <b>40s</b></span>
+      <span class="r">2️⃣ 中火 <b>30s</b></span>
+      <span class="r">3️⃣ 大火 <b>25s</b></span>
+    </div>
+    <button id="startBtn">开始煮面</button>
+    <span class="hint">手指/鼠标滑动画线 · 点击夹面 · 手机也可玩</span>
+  </div>
+
+  <div class="overlay" id="roundOverlay" style="display:none">
+    <h2 id="roundTitle">第 1 关通过!</h2>
+    <p id="roundStats"></p>
+    <button id="nextBtn">下一关 ➜</button>
+  </div>
+
+  <div class="overlay" id="overOverlay" style="display:none">
+    <h2 id="overTitle">游戏结束</h2>
+    <div class="big" id="finalScore">0</div>
+    <div class="rate" id="finalRate"></div>
+    <p id="finalStats"></p>
+    <button id="againBtn">再来一碗 🔄</button>
+    <span class="hint">米其林标准:完美率越高,评级越高</span>
+  </div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+  const cv = document.getElementById('cv');
+  const ctx = cv.getContext('2d');
+  const W = 420, H = 640, DPR = Math.min(window.devicePixelRatio || 1, 2);
+  cv.width = W * DPR; cv.height = H * DPR;
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+
+  const $ = (id) => document.getElementById(id);
+  const scoreEl = $('score'), comboEl = $('combo'), roundChip = $('roundChip'),
+        catchChip = $('catchChip'), timeFill = $('timefill');
+
+  // ---------- 锅与水的区域 ----------
+  const POT = { x: 210, rimY: 470, topY: 445, bottomY: 590, halfW: 175 };
+  const DRAW_REGION = { x0: 70, x1: 350, y0: 455, y1: 555 };
+
+  // ===== 难度参数(支持 params.json 动态覆盖,无需改代码) =====
+  const DEFAULT_PARAMS = {
+    round1Time: 50, round1Heat: 0.85, round1Need: 3,
+    round2Time: 40, round2Heat: 1.0, round2Need: 3,
+    round3Time: 30, round3Heat: 1.3, round3Need: 3,
+    baseCook: 7, perfectStart: 0.38, perfectEnd: 0.78,
+    maxNoodles: 5, perfectScore: 100, earlyScore: 40, lateScore: 20,
+  };
+  let P = { ...DEFAULT_PARAMS };
+  const paramsReady = fetch('params.json')
+    .then((r) => (r.ok ? r.json() : null))
+    .then((d) => { if (d && d.params) for (const k in d.params) if (k in DEFAULT_PARAMS) P[k] = d.params[k].value; })
+    .catch(() => {});
+  // ===== 参数化结束 =====
+
+  // ---------- 回合配置 ----------
+  let ROUNDS = [
+    { name: '慢火', time: 40, heat: 0.85, need: 3 },
+    { name: '中火', time: 30, heat: 1.15, need: 4 },
+    { name: '大火', time: 25, heat: 1.5, need: 4 },
+  ];
+  const BASE_COOK = 7;            // 基础煮熟时长(秒)
+  let PERFECT = [0.48, 0.72];     // Q弹窗口(煮制进度)
+
+  let state = 'title';            // title | playing | roundclear | gameover
+  let round = 0, timeLeft = 0, score = 0, combo = 1, caughtThisRound = 0;
+  let noodles = [], floats = [], particles = [], bubbles = [], steam = [];
+  let stroke = null;              // 正在画的笔画
+  let pointer = { x: -100, y: -100, down: false };
+  let last = 0;
+
+  // ---------- 音频(WebAudio 合成) ----------
+  let ac = null;
+  function tone(freq, dur, type, vol, delay) {
+    try {
+      ac = ac || new (window.AudioContext || window.webkitAudioContext)();
+      const t = ac.currentTime + (delay || 0);
+      const o = ac.createOscillator(), g = ac.createGain();
+      o.type = type || 'sine'; o.frequency.value = freq;
+      g.gain.setValueAtTime(vol || 0.09, t);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      o.connect(g); g.connect(ac.destination);
+      o.start(t); o.stop(t + dur);
+    } catch (e) {}
+  }
+  const sfx = {
+    perfect: (c) => { tone(620 + c * 40, 0.12, 'triangle'); tone(930 + c * 50, 0.16, 'triangle', 0.08, 0.08); },
+    early:   () => tone(300, 0.14, 'sine', 0.08),
+    late:    () => tone(210, 0.16, 'sine', 0.08),
+    breakN:  () => { tone(280, 0.18, 'sawtooth', 0.05, 0); tone(150, 0.25, 'sawtooth', 0.05, 0.12); },
+    draw:    () => tone(180, 0.05, 'sine', 0.03),
+    clear:   () => { [523, 659, 784].forEach((f, i) => tone(f, 0.18, 'triangle', 0.09, i * 0.12)); },
+    fail:    () => { [392, 330, 262].forEach((f, i) => tone(f, 0.25, 'sine', 0.09, i * 0.15)); },
+    start:   () => { [392, 523].forEach((f, i) => tone(f, 0.14, 'triangle', 0.09, i * 0.1)); },
+  };
+
+  // ---------- 输入(统一鼠标/触屏) ----------
+  function pos(e) {
+    const r = cv.getBoundingClientRect();
+    return { x: (e.clientX - r.left) / r.width * W, y: (e.clientY - r.top) / r.height * H };
+  }
+  cv.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    pointer = { ...pos(e), down: true };
+    if (state !== 'playing') return;
+    // 记录笔画起点(点击夹面在 pointerup 判定,避免按下就误夹)
+    stroke = { pts: [{ x: clamp(pointer.x), y: clampY(pointer.y) }], t: 0 };
+    sfx.draw();
+  });
+  cv.addEventListener('pointermove', (e) => {
+    e.preventDefault();
+    const p = pos(e);
+    pointer.x = p.x; pointer.y = p.y;
+    if (state === 'playing' && stroke && pointer.down) {
+      const q = { x: clamp(p.x), y: clampY(p.y) };
+      const lastPt = stroke.pts[stroke.pts.length - 1];
+      if (Math.hypot(q.x - lastPt.x, q.y - lastPt.y) > 7 && stroke.pts.length < 90) {
+        stroke.pts.push(q);
+        if (stroke.pts.length % 6 === 0) sfx.draw();
+      }
+    }
+  });
+  window.addEventListener('pointerup', (e) => {
+    if (!pointer.down) return;
+    pointer.down = false;
+    if (state !== 'playing' || !stroke) { stroke = null; return; }
+    const up = pos(e);
+    const len = strokeLen(stroke.pts);
+    if (len < 14) {
+      // 视为点击 → 夹面
+      tryCatch(up.x, up.y);
+    } else if (len < 30) {
+      addFloat(stroke.pts[0].x, stroke.pts[0].y - 20, '太短了,再长一点', '#ff9d9d');
+    } else {
+      if (noodles.length >= P.maxNoodles) {
+        addFloat(stroke.pts[0].x, stroke.pts[0].y - 20, '锅满了,先夹出面条!', '#ffd75e');
+      } else {
+        const maxT = P.baseCook / ROUNDS[round].heat;
+        noodles.push({ pts: stroke.pts, cookT: 0, maxT, dead: false, phase: Math.random() * 6.28 });
+        addFloat(stroke.pts[0].x, stroke.pts[0].y - 20, '下锅!', '#cfe8ff');
+      }
+    }
+    stroke = null;
+  });
+  function clamp(x) { return Math.max(DRAW_REGION.x0, Math.min(DRAW_REGION.x1, x)); }
+  function clampY(y) { return Math.max(DRAW_REGION.y0, Math.min(DRAW_REGION.y1, y)); }
+  function strokeLen(pts) {
+    let s = 0;
+    for (let i = 1; i < pts.length; i++) s += Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
+    return s;
+  }
+
+  // ---------- 夹面 ----------
+  function tryCatch(x, y) {
+    for (const n of noodles) {
+      if (n.dead) continue;
+      for (let i = 0; i < n.pts.length; i += 2) {
+        if (Math.hypot(n.pts[i].x - x, n.pts[i].y - y) < 30) {
+          catchNoodle(n, x, y);
+          return;
+        }
+      }
+    }
+  }
+  function catchNoodle(n, x, y) {
+    n.dead = true;
+    scoreCounts.total++;
+    const p = n.cookT / n.maxT;
+    if (p < PERFECT[0]) {
+      score += P.earlyScore; combo = 1;
+      addFloat(x, y - 24, `夹生了… +${P.earlyScore}`, '#b8c4cc');
+      sfx.early();
+    } else if (p <= PERFECT[1]) {
+      scoreCounts.perfect++;
+      const gain = P.perfectScore * combo;
+      score += gain; combo++;
+      addFloat(x, y - 30, `Q弹! +${gain}`, '#ffd75e');
+      burst(x, y, '#ffd75e', 10);
+      sfx.perfect(combo);
+    } else {
+      score += P.lateScore; combo = 1;
+      addFloat(x, y - 24, `太软了… +${P.lateScore}`, '#b08968');
+      sfx.late();
+    }
+    caughtThisRound++;
+    updateHud();
+  }
+
+  // ---------- 特效 ----------
+  function addFloat(x, y, text, color) { floats.push({ x, y, text, color, t: 0 }); }
+  function burst(x, y, color, n) {
+    for (let i = 0; i < n; i++) {
+      const a = Math.random() * 6.28, v = 40 + Math.random() * 70;
+      particles.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 30, life: 1, color });
+    }
+  }
+  function spawnBubbles(dt) {
+    if (Math.random() < dt * 6) bubbles.push({ x: POT.x + (Math.random() - 0.5) * 260, y: POT.bottomY - 20, r: 2 + Math.random() * 4 });
+    for (let i = bubbles.length - 1; i >= 0; i--) {
+      const b = bubbles[i];
+      b.y -= (25 + b.r * 4) * dt; b.x += Math.sin(b.y * 0.05) * 8 * dt;
+      if (b.y < POT.topY + 10) bubbles.splice(i, 1);
+    }
+  }
+  function spawnSteam(dt) {
+    if (Math.random() < dt * 3) steam.push({ x: POT.x + (Math.random() - 0.5) * 120, y: POT.rimY - 10, r: 5 + Math.random() * 8, life: 1 });
+    for (let i = steam.length - 1; i >= 0; i--) {
+      const s = steam[i];
+      s.y -= 30 * dt; s.x += Math.sin(s.y * 0.08) * 20 * dt; s.life -= dt * 0.4; s.r += 8 * dt;
+      if (s.life <= 0) steam.splice(i, 1);
+    }
+  }
+
+  // ---------- 更新 ----------
+  function update(dt) {
+    if (state !== 'playing') return;
+    timeLeft -= dt;
+    if (timeLeft <= 0) { timeLeft = 0; endRound(); return; }
+    timeFill.style.width = (timeLeft / ROUNDS[round].time * 100) + '%';
+
+    spawnBubbles(dt); spawnSteam(dt);
+
+    for (const n of noodles) {
+      if (n.dead) continue;
+      n.cookT += dt;
+      const p = n.cookT / n.maxT;
+      if (p >= 0.9) {           // 煮散
+        n.dead = true;
+        combo = 1;
+        for (const pt of n.pts) burst(pt.x, pt.y, '#b08968', 2);
+        addFloat(n.pts[0].x, n.pts[0].y - 24, '煮散了… 0分', '#b08968');
+        sfx.breakN();
+        updateHud();
+      }
+    }
+    for (let i = floats.length - 1; i >= 0; i--) { const f = floats[i]; f.t += dt; f.y -= 34 * dt; if (f.t > 1.4) floats.splice(i, 1); }
+    for (let i = particles.length - 1; i >= 0; i--) {
+      const p = particles[i];
+      p.x += p.vx * dt; p.y += p.vy * dt; p.vy += 220 * dt; p.life -= dt * 1.6;
+      if (p.life <= 0) particles.splice(i, 1);
+    }
+  }
+
+  function endRound() {
+    const cfg = ROUNDS[round];
+    if (caughtThisRound >= cfg.need) {
+      if (round >= ROUNDS.length - 1) {
+        state = 'gameover';
+        finishGame(true);
+      } else {
+        state = 'roundclear';
+        $('roundTitle').textContent = `第 ${round + 1} 关通过!`;
+        $('roundStats').innerHTML = `本关夹出 <b style="color:#ffd75e">${caughtThisRound}</b> 碗 · 当前总分 <b style="color:#ffd75e">${score}</b>`;
+        $('nextBtn').textContent = '下一关:大火 ➜';
+        $('roundOverlay').style.display = 'flex';
+        sfx.clear();
+      }
+    } else {
+      state = 'gameover';
+      finishGame(false);
+    }
+  }
+
+  function finishGame(completed) {
+    $('overTitle').textContent = completed ? '🍜 三关通关!' : `第 ${round + 1} 关失败`;
+    $('finalScore').textContent = score;
+    const perfects = scoreCounts.perfect;
+    const ratio = perfects / Math.max(1, scoreCounts.total);
+    const rate = ratio >= 0.7 ? '米其林三星大厨 ✨🍜' : ratio >= 0.4 ? '面馆老师傅 🍜' : '煮面学徒 🍜💦';
+    $('finalRate').textContent = rate;
+    $('finalStats').innerHTML = `完美夹面 <b>${perfects}</b> 次 · 成功率 <b>${Math.round(ratio * 100)}%</b>`;
+    $('overOverlay').style.display = 'flex';
+    sfx.fail();
+  }
+
+  // ---------- 绘制 ----------
+  function lerpColor(a, b, t) {
+    const c = (h) => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
+    const ca = c(a), cb = c(b);
+    return `rgb(${Math.round(ca[0] + (cb[0] - ca[0]) * t)},${Math.round(ca[1] + (cb[1] - ca[1]) * t)},${Math.round(ca[2] + (cb[2] - ca[2]) * t)})`;
+  }
+  const C_RAW = '#b9c2ca', C_PERFECT = '#f5b83d', C_SOFT = '#9c7a55';
+
+  function noodleColor(p) {
+    if (p < PERFECT[0]) return lerpColor(C_RAW, C_PERFECT, p / PERFECT[0] * 0.55);
+    if (p <= PERFECT[1]) return C_PERFECT;
+    return lerpColor(C_PERFECT, C_SOFT, (p - PERFECT[1]) / (0.9 - PERFECT[1]));
+  }
+
+  function drawScene(time) {
+    // 背景(厨房桌面)
+    const bg = ctx.createLinearGradient(0, 0, 0, H);
+    bg.addColorStop(0, '#fdf3dd'); bg.addColorStop(1, '#e8d5ac');
+    ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
+
+    // 蒸汽
+    for (const s of steam) {
+      ctx.fillStyle = `rgba(255,255,255,${0.25 * s.life})`;
+      ctx.beginPath(); ctx.arc(s.x, s.y, s.r, 0, 7); ctx.fill();
+    }
+
+    // 锅体
+    ctx.fillStyle = '#3a3f4a';
+    ctx.beginPath(); ctx.ellipse(POT.x, POT.rimY, POT.halfW + 14, 20, 0, 0, 7); ctx.fill();
+    const potGrad = ctx.createLinearGradient(0, POT.rimY, 0, POT.bottomY);
+    potGrad.addColorStop(0, '#4a505e'); potGrad.addColorStop(1, '#2b2f38');
+    ctx.fillStyle = potGrad;
+    ctx.beginPath();
+    ctx.moveTo(POT.x - POT.halfW, POT.rimY - 8);
+    ctx.quadraticCurveTo(POT.x - POT.halfW + 14, POT.bottomY, POT.x, POT.bottomY);
+    ctx.quadraticCurveTo(POT.x + POT.halfW - 14, POT.bottomY, POT.x + POT.halfW, POT.rimY - 8);
+    ctx.closePath(); ctx.fill();
+    // 锅柄
+    ctx.strokeStyle = '#2b2f38'; ctx.lineWidth = 9;
+    ctx.beginPath(); ctx.moveTo(POT.x + POT.halfW - 4, POT.rimY - 16); ctx.lineTo(POT.x + POT.halfW + 34, POT.rimY - 30); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(POT.x - POT.halfW + 4, POT.rimY - 16); ctx.lineTo(POT.x - POT.halfW - 34, POT.rimY - 30); ctx.stroke();
+
+    // 汤面(椭圆水面)
+    const waterGrad = ctx.createLinearGradient(0, POT.topY, 0, POT.rimY + 30);
+    waterGrad.addColorStop(0, '#ffe9b8'); waterGrad.addColorStop(1, '#f2c86b');
+    ctx.fillStyle = waterGrad;
+    ctx.beginPath(); ctx.ellipse(POT.x, POT.rimY, POT.halfW, 34, 0, 0, 7); ctx.fill();
+
+    // 气泡
+    for (const b of bubbles) {
+      ctx.strokeStyle = 'rgba(255,255,255,.7)'; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, 7); ctx.stroke();
+    }
+
+    // 面条
+    for (const n of noodles) {
+      drawNoodle(n, time);
+    }
+
+    // 正在画的笔画预览
+    if (stroke && stroke.pts.length > 1) {
+      ctx.strokeStyle = 'rgba(255,255,255,.9)'; ctx.lineWidth = 8; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+      ctx.shadowColor = '#fff'; ctx.shadowBlur = 10;
+      pathStroke(stroke.pts, 0);
+      ctx.shadowBlur = 0;
+    }
+
+    // 锅沿高光
+    ctx.strokeStyle = 'rgba(255,255,255,.35)'; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.ellipse(POT.x, POT.rimY, POT.halfW, 20, 0, Math.PI, 0); ctx.stroke();
+
+    // 筷子光标
+    if (state === 'playing' && !stroke && pointer.x > 0 && pointer.y > 0 && pointer.y < H - 10) {
+      drawChopsticks(pointer.x, pointer.y);
+    }
+
+    // 粒子
+    for (const p of particles) {
+      ctx.fillStyle = p.color; ctx.globalAlpha = Math.max(0, p.life);
+      ctx.beginPath(); ctx.arc(p.x, p.y, 3, 0, 7); ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+    // 飘字
+    for (const f of floats) {
+      ctx.globalAlpha = Math.max(0, 1 - f.t / 1.4);
+      ctx.fillStyle = f.color; ctx.font = 'bold 17px sans-serif'; ctx.textAlign = 'center';
+      ctx.fillText(f.text, f.x, f.y);
+      ctx.globalAlpha = 1;
+    }
+  }
+
+  function drawNoodle(n, time) {
+    const p = n.cookT / n.maxT;
+    const color = noodleColor(p);
+    ctx.strokeStyle = color; ctx.lineWidth = 8; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    const sparkle = p >= PERFECT[0] && p <= PERFECT[1];
+    if (sparkle) { ctx.shadowColor = '#ffd75e'; ctx.shadowBlur = 14; }
+    const wob = Math.sin(time * 3 + n.phase) * (2 + p * 8);
+    ctx.beginPath();
+    for (let i = 0; i < n.pts.length; i++) {
+      const pt = n.pts[i];
+      const bob = Math.sin(time * 2.2 + i * 0.6 + n.phase) * 3;
+      const x = pt.x + Math.sin(time * 3 + i * 0.5 + n.phase) * wob * 0.4;
+      const y = pt.y + bob + wob * Math.sin(time * 2 + i * 0.35) * 0.35;
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+    // Q弹窗口:明显的高亮提示(发光环 + 跳动"夹我!")
+    if (sparkle) {
+      const mid = n.pts[Math.floor(n.pts.length / 2)];
+      const bounce = Math.sin(time * 6 + n.phase) * 4;
+      ctx.strokeStyle = 'rgba(255,215,94,.9)';
+      ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.arc(mid.x, mid.y, 20 + Math.sin(time * 5 + n.phase) * 2, 0, 7); ctx.stroke();
+      ctx.fillStyle = '#fff';
+      ctx.font = 'bold 17px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.strokeStyle = 'rgba(120,60,0,.85)';
+      ctx.lineWidth = 4;
+      ctx.strokeText('✨ 夹我!', mid.x, mid.y - 34 + bounce);
+      ctx.fillText('✨ 夹我!', mid.x, mid.y - 34 + bounce);
+    }
+    // Q弹窗口的小星星
+    if (sparkle && Math.random() < 0.25) {
+      const pt = n.pts[Math.floor(Math.random() * n.pts.length)];
+      burst(pt.x, pt.y - 6, '#fff7cc', 1);
+    }
+  }
+
+  function pathStroke(pts, offset) {
+    ctx.beginPath();
+    for (let i = 0; i < pts.length; i++) {
+      const p = pts[i];
+      if (i === 0) ctx.moveTo(p.x, p.y); else ctx.lineTo(p.x, p.y);
+    }
+    ctx.stroke();
+  }
+
+  function drawChopsticks(x, y) {
+    ctx.strokeStyle = '#8a5a2b'; ctx.lineWidth = 4; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(x - 16, y + 16); ctx.lineTo(x + 4, y - 12); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(x - 8, y + 20); ctx.lineTo(x + 12, y - 8); ctx.stroke();
+  }
+
+  // ---------- HUD / 流程 ----------
+  const scoreCounts = { perfect: 0, total: 0 };
+  function updateHud() {
+    scoreEl.textContent = score;
+    comboEl.textContent = `连击 ×${combo}`;
+    catchChip.textContent = `🍜 ${caughtThisRound}/${ROUNDS[round].need}`;
+  }
+
+  function startRound() {
+    const cfg = ROUNDS[round];
+    roundChip.textContent = `第 ${round + 1} 关 · ${cfg.name}`;
+    timeLeft = cfg.time;
+    caughtThisRound = 0;
+    noodles = []; stroke = null;
+    timeFill.style.width = '100%';
+    updateHud();
+    $('roundOverlay').style.display = 'none';
+    $('overOverlay').style.display = 'none';
+    state = 'playing';
+    sfx.start();
+  }
+
+  async function startGame() {
+    await paramsReady;
+    ROUNDS = [
+      { name: '慢火', time: P.round1Time, heat: P.round1Heat, need: P.round1Need },
+      { name: '中火', time: P.round2Time, heat: P.round2Heat, need: P.round2Need },
+      { name: '大火', time: P.round3Time, heat: P.round3Heat, need: P.round3Need },
+    ];
+    PERFECT = [P.perfectStart, P.perfectEnd];
+    score = 0; combo = 1; round = 0;
+    scoreCounts.perfect = 0; scoreCounts.total = 0;
+    $('titleOverlay').style.display = 'none';
+    startRound();
+  }
+
+  $('startBtn').onclick = () => { if (ac && ac.state === 'suspended') ac.resume(); startGame(); };
+  $('nextBtn').onclick = () => { round++; startRound(); };
+  $('againBtn').onclick = startGame;
+
+  // ---------- 主循环 ----------
+  function loop(ts) {
+    const dt = Math.min((ts - last) / 1000, 0.05);
+    last = ts;
+    update(dt);
+    drawScene(ts / 1000);
+    requestAnimationFrame(loop);
+  }
+  last = performance.now();
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>

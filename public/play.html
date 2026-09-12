@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>试玩中 · 我的游戏屋</title>
+<link rel="stylesheet" href="/assets/site.css">
+<style>
+  body { background: #0a0d1a; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+  .play-head { display: flex; align-items: center; gap: 14px; padding: 12px 20px; border-bottom: 1px solid var(--line); background: #0f1220; flex: none; }
+  .play-head a { color: var(--dim); text-decoration: none; font-size: 14px; }
+  .play-head a:hover { color: var(--text); }
+  .play-head h1 { font-size: 18px; flex: 1; }
+  .play-head .meta { color: var(--dim); font-size: 13px; }
+  .frame-wrap { flex: 1; position: relative; background: #000; }
+  iframe { width: 100%; height: 100%; border: none; display: block; }
+  .btn { background: var(--panel2); color: var(--text); border: 1px solid var(--line); padding: 8px 16px; border-radius: 20px; cursor: pointer; font-size: 13px; }
+  .btn:hover { border-color: var(--accent); }
+  .toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background: var(--panel2); border: 1px solid var(--line); padding: 10px 18px; border-radius: 10px; font-size: 13px; opacity: 0; transition: opacity .3s; pointer-events: none; }
+  .toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+<div class="play-head">
+  <a href="/">← 返回游戏屋</a>
+  <h1 id="title">加载中...</h1>
+  <span class="meta">🔥 <span id="plays">0</span> 次试玩</span>
+  <button class="btn" onclick="toggleFull()">⛶ 全屏</button>
+</div>
+<div class="frame-wrap">
+  <iframe id="frame" title="游戏试玩" allowfullscreen></iframe>
+</div>
+<div class="toast" id="toast">🍎 喜欢这款游戏吗?工作室正用它评估热度</div>
+
+<script>
+const slug = location.pathname.split('/').pop();
+const frame = document.getElementById('frame');
+frame.src = `/g/${slug}/index.html`;
+
+// 记录一次试玩(用于热度评估)
+fetch(`/api/games/${slug}/play`, { method: 'POST' })
+  .then((r) => r.json())
+  .then((d) => { if (d.total) document.getElementById('plays').textContent = d.total; })
+  .catch(() => {});
+
+// 同步显示游戏信息(公开接口)
+fetch('/api/games?public=1')
+  .then((r) => r.json())
+  .then((d) => {
+    const g = (d.games || []).find((x) => x.slug === slug);
+    if (g) document.getElementById('title').textContent = `🎮 ${g.title}`;
+  })
+  .catch(() => {});
+
+setTimeout(() => document.getElementById('toast').classList.add('show'), 1500);
+setTimeout(() => document.getElementById('toast').classList.remove('show'), 6000);
+
+function toggleFull() {
+  if (document.fullscreenElement) document.exitFullscreen();
+  else document.getElementById('frame').requestFullscreen();
+}
+</script>
+</body>
+</html>

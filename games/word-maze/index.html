@@ -1,0 +1,545 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>词林迷阵 · 汉字幻境</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            user-select: none;
+            -webkit-tap-highlight-color: transparent;
+        }
+        body {
+            background: #1a2a1f;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-family: system-ui, 'Segoe UI', 'Noto Sans', sans-serif;
+            touch-action: manipulation;
+        }
+        #game-root {
+            width: 100%;
+            max-width: 480px;
+            aspect-ratio: 9 / 16;
+            background: radial-gradient(circle at 20% 30%, #2f4d3a, #1e2f24);
+            border-radius: 32px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.6);
+            position: relative;
+            overflow: hidden;
+            border: 2px solid #7baa7d;
+        }
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+            border-radius: 32px;
+        }
+        /* 覆盖层 (开始/结算) */
+        .overlay {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            background: rgba(20, 30, 20, 0.8);
+            backdrop-filter: blur(6px);
+            border-radius: 32px;
+            z-index: 20;
+            color: #f0e9d8;
+            padding: 24px;
+            text-align: center;
+            transition: opacity 0.2s;
+        }
+        .overlay.hidden {
+            opacity: 0;
+            pointer-events: none;
+        }
+        .game-title {
+            font-size: 3.2rem;
+            font-weight: 800;
+            letter-spacing: 0.15em;
+            text-shadow: 0 0 20px #b8e0b0, 0 4px 0 #2a4a2a;
+            margin-bottom: 12px;
+            color: #e5ffd0;
+        }
+        .sub-title {
+            font-size: 1.1rem;
+            background: #3a5a3a;
+            padding: 8px 18px;
+            border-radius: 40px;
+            box-shadow: inset 0 2px 6px rgba(0,0,0,0.3);
+            margin-bottom: 30px;
+            color: #d0e8c0;
+        }
+        .btn {
+            background: #6f9e6f;
+            border: none;
+            padding: 14px 40px;
+            border-radius: 60px;
+            font-size: 1.5rem;
+            font-weight: bold;
+            color: #1f2f1f;
+            box-shadow: 0 8px 0 #2d4a2d, 0 12px 24px rgba(0,0,0,0.3);
+            transition: all 0.08s ease;
+            cursor: pointer;
+            letter-spacing: 0.1em;
+            touch-action: manipulation;
+        }
+        .btn:active {
+            transform: translateY(6px);
+            box-shadow: 0 2px 0 #2d4a2d;
+        }
+        .rating {
+            font-size: 2.2rem;
+            font-weight: 700;
+            margin: 16px 0 8px;
+        }
+        .score-display {
+            font-size: 1.8rem;
+            background: #2d4a2d;
+            padding: 6px 24px;
+            border-radius: 40px;
+            margin: 12px 0;
+        }
+        .flex-col {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            align-items: center;
+        }
+        .hint-text {
+            font-size: 1rem;
+            opacity: 0.9;
+            margin-top: 20px;
+            font-style: italic;
+        }
+    </style>
+</head>
+<body>
+<div id="game-root">
+    <canvas id="game-canvas" width="360" height="640"></canvas>
+
+    <!-- 开始界面 -->
+    <div id="start-overlay" class="overlay">
+        <div class="game-title">词林迷阵</div>
+        <div class="sub-title">🌿 合字为明 · 破局而生</div>
+        <button class="btn" id="start-btn">入 林</button>
+        <div class="hint-text">组合「日」「月」成「明」照亮前路</div>
+    </div>
+
+    <!-- 结算界面 -->
+    <div id="end-overlay" class="overlay hidden">
+        <div class="game-title">🌲 归 途</div>
+        <div class="rating" id="final-rating">甲上</div>
+        <div class="score-display" id="final-score">0</div>
+        <button class="btn" id="restart-btn">再 入 林</button>
+        <div class="hint-text" id="end-comment">字灵相合，心明眼亮</div>
+    </div>
+</div>
+
+<script>
+(function() {
+    // ---------- 可调参数 (工作站可覆盖) ----------
+    const DEFAULT_PARAMS = {
+        baseScore: 100,          // 每次成功合成的基础分
+        comboBonus: 30,          // 连击额外分
+        maxCombo: 5,             // 连击上限
+        startLives: 3,           // 生命值
+        timeLimit: 60,           // 总时间(秒)
+        particleCount: 18,       // 特效粒子数
+        hintCost: 0,             // 未用
+        mergeCooldown: 0.3,      // 合成冷却(秒)
+        failPenalty: 1,          // 失败扣命
+    };
+
+    let params = { ...DEFAULT_PARAMS };
+
+    // ---------- 状态与全局 ----------
+    const canvas = document.getElementById('game-canvas');
+    const ctx = canvas.getContext('2d');
+    const startOverlay = document.getElementById('start-overlay');
+    const endOverlay = document.getElementById('end-overlay');
+    const finalRatingEl = document.getElementById('final-rating');
+    const finalScoreEl = document.getElementById('final-score');
+    const endCommentEl = document.getElementById('end-comment');
+
+    // 像素比适配
+    const dpr = window.devicePixelRatio || 1;
+    const rect = canvas.getBoundingClientRect();
+    canvas.width = rect.width * dpr;
+    canvas.height = rect.height * dpr;
+    ctx.scale(dpr, dpr);
+    const W = rect.width, H = rect.height;
+
+    // 游戏状态
+    let gameState = 'title'; // title | playing | over
+    let score = 0;
+    let lives = params.startLives;
+    let timeLeft = params.timeLimit;
+    let combo = 0;
+    let lastTime = 0;
+    let mergeCooldown = 0;
+    let particles = [];
+    let floatingTexts = [];
+
+    // 汉字池 (核心玩法)
+    const HANZI = ['日', '月', '木', '水', '火', '土'];
+    const MERGE_RULES = {
+        '日月': '明',
+        '日火': '辉',
+        '木木': '林',
+        '水水': '淼',
+        '火火': '炎',
+        '土土': '圭',
+    };
+
+    // 当前场景字块 (最多3个)
+    let currentChars = [];
+    let selectedIndex = -1;
+
+    // 音频上下文
+    let audioCtx = null;
+    function initAudio() {
+        if (!audioCtx) {
+            try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); }
+            catch(e) { audioCtx = null; }
+        }
+        if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+    }
+    function playTone(freq, dur = 0.15, type = 'sine', vol = 0.2) {
+        if (!audioCtx) return;
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = type;
+        osc.frequency.value = freq;
+        gain.gain.setValueAtTime(vol, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + dur);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start();
+        osc.stop(audioCtx.currentTime + dur);
+    }
+    function sfxMerge() { playTone(880, 0.15, 'triangle', 0.25); playTone(1320, 0.1, 'sine', 0.1); }
+    function sfxFail() { playTone(180, 0.25, 'sawtooth', 0.2); }
+    function sfxOver() { playTone(440, 0.3, 'sine', 0.2); playTone(220, 0.4, 'sine', 0.15); }
+
+    // ---------- 工具 ----------
+    function spawnChars() {
+        currentChars = [];
+        for (let i = 0; i < 3; i++) {
+            currentChars.push(HANZI[Math.floor(Math.random() * HANZI.length)]);
+        }
+        selectedIndex = -1;
+    }
+
+    function resetGame() {
+        score = 0;
+        lives = params.startLives;
+        timeLeft = params.timeLimit;
+        combo = 0;
+        mergeCooldown = 0;
+        particles = [];
+        floatingTexts = [];
+        spawnChars();
+    }
+
+    // 合成逻辑
+    function tryMerge(idxA, idxB) {
+        if (idxA === idxB) return false;
+        const a = currentChars[idxA];
+        const b = currentChars[idxB];
+        const key1 = a + b;
+        const key2 = b + a;
+        let merged = null;
+        if (MERGE_RULES[key1]) merged = MERGE_RULES[key1];
+        else if (MERGE_RULES[key2]) merged = MERGE_RULES[key2];
+        if (!merged) return false;
+
+        // 成功合成
+        sfxMerge();
+        const gain = params.baseScore + Math.min(combo, params.maxCombo) * params.comboBonus;
+        score += gain;
+        combo++;
+        addFloatingText(`+${gain}`, W/2, H/2 - 40, '#ffd966');
+        // 特效粒子
+        for (let i = 0; i < params.particleCount; i++) {
+            particles.push({
+                x: W/2, y: H/2,
+                vx: (Math.random()-0.5)*8,
+                vy: (Math.random()-0.5)*8 - 2,
+                life: 0.8 + Math.random()*0.5,
+                color: `hsl(${50+Math.random()*40}, 80%, 70%)`,
+                size: 4 + Math.random()*6
+            });
+        }
+        // 替换两个字符为新字
+        currentChars[idxA] = merged;
+        currentChars.splice(idxB, 1);
+        if (currentChars.length < 2) spawnChars(); // 补全
+        selectedIndex = -1;
+        mergeCooldown = params.mergeCooldown;
+        return true;
+    }
+
+    // 失败处理 (选错或超时)
+    function failAction() {
+        lives -= params.failPenalty;
+        combo = 0;
+        sfxFail();
+        addFloatingText('失手 -1', W/2, H/2, '#e55');
+        if (lives <= 0) {
+            gameOver();
+        }
+    }
+
+    function gameOver() {
+        gameState = 'over';
+        sfxOver();
+        // 显示结算
+        const rating = lives > 0 ? (score > 800 ? '甲上' : score > 400 ? '甲等' : '乙等') : '丙等';
+        finalRatingEl.textContent = rating;
+        finalScoreEl.textContent = score;
+        endCommentEl.textContent = lives > 0 ? '字灵相合，心明眼亮' : '林间迷雾，再试锋芒';
+        endOverlay.classList.remove('hidden');
+        startOverlay.classList.add('hidden');
+    }
+
+    // 飘字
+    function addFloatingText(text, x, y, color = '#fff') {
+        floatingTexts.push({ text, x, y, life: 1.0, color });
+    }
+
+    // ---------- 渲染 ----------
+    function drawBackground() {
+        const grad = ctx.createLinearGradient(0, 0, 0, H);
+        grad.addColorStop(0, '#1e3a2a');
+        grad.addColorStop(1, '#0f1f15');
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, W, H);
+        // 装饰光点
+        ctx.fillStyle = 'rgba(180, 220, 160, 0.1)';
+        for (let i = 0; i < 12; i++) {
+            ctx.beginPath();
+            ctx.arc(30 + i*30, (i%3)*70 + 20, 18, 0, Math.PI*2);
+            ctx.fill();
+        }
+    }
+
+    function drawHUD() {
+        ctx.fillStyle = '#e5f0d8';
+        ctx.font = 'bold 18px system-ui';
+        ctx.shadowColor = '#000';
+        ctx.shadowBlur = 8;
+        ctx.fillText(`♥ ${lives}`, 20, 40);
+        ctx.fillText(`⏱ ${Math.ceil(timeLeft)}`, W-80, 40);
+        ctx.fillText(`✦ ${score}`, W/2-30, 40);
+        if (combo > 1) {
+            ctx.fillStyle = '#ffb14d';
+            ctx.font = 'bold 16px system-ui';
+            ctx.fillText(`连击 x${combo}`, W/2-30, 70);
+        }
+        ctx.shadowBlur = 0;
+    }
+
+    function drawChars() {
+        const len = currentChars.length;
+        const startX = W/2 - (len-1)*35;
+        for (let i = 0; i < len; i++) {
+            const x = startX + i*70;
+            const y = H/2 + 20;
+            ctx.fillStyle = selectedIndex === i ? '#c3e8a0' : '#8bbd7a';
+            ctx.shadowColor = '#000';
+            ctx.shadowBlur = 12;
+            ctx.beginPath();
+            ctx.roundRect(x-28, y-38, 56, 76, 16);
+            ctx.fill();
+            ctx.shadowBlur = 0;
+            ctx.fillStyle = '#1f2f1f';
+            ctx.font = 'bold 42px system-ui';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(currentChars[i], x, y);
+        }
+        ctx.textAlign = 'left';
+    }
+
+    // 粒子
+    function updateParticles(dt) {
+        particles = particles.filter(p => p.life > 0);
+        particles.forEach(p => {
+            p.x += p.vx * dt * 60;
+            p.y += p.vy * dt * 60;
+            p.life -= dt;
+        });
+    }
+    function drawParticles() {
+        particles.forEach(p => {
+            ctx.globalAlpha = Math.max(0, p.life);
+            ctx.fillStyle = p.color;
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, p.size, 0, Math.PI*2);
+            ctx.fill();
+        });
+        ctx.globalAlpha = 1;
+    }
+
+    function updateFloatingTexts(dt) {
+        floatingTexts = floatingTexts.filter(t => t.life > 0);
+        floatingTexts.forEach(t => {
+            t.y -= dt * 40;
+            t.life -= dt;
+        });
+    }
+    function drawFloatingTexts() {
+        ctx.font = 'bold 22px system-ui';
+        ctx.textAlign = 'center';
+        floatingTexts.forEach(t => {
+            ctx.globalAlpha = Math.max(0, t.life);
+            ctx.fillStyle = t.color;
+            ctx.fillText(t.text, t.x, t.y);
+        });
+        ctx.globalAlpha = 1;
+        ctx.textAlign = 'left';
+    }
+
+    // 绘制主循环
+    function render() {
+        drawBackground();
+        if (gameState === 'playing') {
+            drawHUD();
+            drawChars();
+            drawParticles();
+            drawFloatingTexts();
+        }
+    }
+
+    // ---------- 更新 ----------
+    function update(dt) {
+        if (gameState !== 'playing') return;
+        timeLeft -= dt;
+        if (timeLeft <= 0) {
+            timeLeft = 0;
+            gameOver();
+            return;
+        }
+        if (mergeCooldown > 0) mergeCooldown -= dt;
+        updateParticles(dt);
+        updateFloatingTexts(dt);
+    }
+
+    // ---------- 事件 ----------
+    function handlePointer(e) {
+        if (gameState !== 'playing') return;
+        e.preventDefault();
+        const rect = canvas.getBoundingClientRect();
+        const scaleX = W / rect.width;
+        const scaleY = H / rect.height;
+        const px = (e.clientX - rect.left) * scaleX;
+        const py = (e.clientY - rect.top) * scaleY;
+
+        // 检测字块点击
+        const len = currentChars.length;
+        const startX = W/2 - (len-1)*35;
+        for (let i = 0; i < len; i++) {
+            const x = startX + i*70;
+            const y = H/2 + 20;
+            if (Math.abs(px - x) < 40 && Math.abs(py - y) < 50) {
+                if (selectedIndex === -1) {
+                    selectedIndex = i;
+                } else {
+                    if (selectedIndex !== i) {
+                        const success = tryMerge(selectedIndex, i);
+                        if (!success) {
+                            failAction();
+                        }
+                        selectedIndex = -1;
+                    } else {
+                        selectedIndex = -1;
+                    }
+                }
+                return;
+            }
+        }
+        // 点击空白取消选择
+        selectedIndex = -1;
+    }
+
+    // ---------- 初始化与事件绑定 ----------
+    function init() {
+        // 异步加载 params.json (不存在则默认)
+        async function loadParams() {
+            try {
+                const res = await fetch('params.json', { cache: 'no-store' });
+                if (res.ok) {
+                    const data = await res.json();
+                    params = { ...DEFAULT_PARAMS, ...data };
+                }
+            } catch (e) { /* 忽略 */ }
+            // 应用参数
+            lives = params.startLives;
+            timeLeft = params.timeLimit;
+        }
+
+        loadParams().then(() => {
+            resetGame();
+            // 事件
+            canvas.addEventListener('pointerdown', handlePointer);
+            document.getElementById('start-btn').addEventListener('click', (e) => {
+                initAudio();
+                resetGame();
+                gameState = 'playing';
+                startOverlay.classList.add('hidden');
+                endOverlay.classList.add('hidden');
+                lastTime = performance.now();
+            });
+            document.getElementById('restart-btn').addEventListener('click', (e) => {
+                initAudio();
+                resetGame();
+                gameState = 'playing';
+                startOverlay.classList.add('hidden');
+                endOverlay.classList.add('hidden');
+                lastTime = performance.now();
+            });
+
+            // 主循环
+            function loop(t) {
+                const dt = Math.min((t - lastTime) / 1000, 0.03);
+                lastTime = t;
+                update(dt);
+                render();
+                requestAnimationFrame(loop);
+            }
+            requestAnimationFrame((t) => {
+                lastTime = t;
+                requestAnimationFrame(loop);
+            });
+        });
+    }
+
+    // 圆角矩形辅助
+    CanvasRenderingContext2D.prototype.roundRect = function(x, y, w, h, r) {
+        if (w < 2 * r) r = w / 2;
+        if (h < 2 * r) r = h / 2;
+        this.moveTo(x + r, y);
+        this.lineTo(x + w - r, y);
+        this.quadraticCurveTo(x + w, y, x + w, y + r);
+        this.lineTo(x + w, y + h - r);
+        this.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+        this.lineTo(x + r, y + h);
+        this.quadraticCurveTo(x, y + h, x, y + h - r);
+        this.lineTo(x, y + r);
+        this.quadraticCurveTo(x, y, x + r, y);
+        return this;
+    };
+
+    init();
+})();
+</script>
+</body>
+</html>

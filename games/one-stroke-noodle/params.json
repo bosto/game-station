@@ -1,0 +1,126 @@
+{
+  "difficulty": "普通(已放宽)",
+  "params": {
+    "round1Time": {
+      "value": 50,
+      "min": 15,
+      "max": 90,
+      "step": 5,
+      "label": "第1关时长(秒)",
+      "desc": "慢火关,从容练习"
+    },
+    "round1Heat": {
+      "value": 0.85,
+      "min": 0.4,
+      "max": 2,
+      "step": 0.05,
+      "label": "第1关火候",
+      "desc": "火越大面条煮得越快"
+    },
+    "round1Need": {
+      "value": 3,
+      "min": 1,
+      "max": 10,
+      "step": 1,
+      "label": "第1关过关碗数"
+    },
+    "round2Time": {
+      "value": 40,
+      "min": 15,
+      "max": 90,
+      "step": 5,
+      "label": "第2关时长(秒)",
+      "desc": "中火关"
+    },
+    "round2Heat": {
+      "value": 1.0,
+      "min": 0.4,
+      "max": 2,
+      "step": 0.05,
+      "label": "第2关火候"
+    },
+    "round2Need": {
+      "value": 3,
+      "min": 1,
+      "max": 10,
+      "step": 1,
+      "label": "第2关过关碗数"
+    },
+    "round3Time": {
+      "value": 30,
+      "min": 15,
+      "max": 90,
+      "step": 5,
+      "label": "第3关时长(秒)",
+      "desc": "大火关,手忙脚乱"
+    },
+    "round3Heat": {
+      "value": 1.3,
+      "min": 0.4,
+      "max": 2.5,
+      "step": 0.05,
+      "label": "第3关火候"
+    },
+    "round3Need": {
+      "value": 3,
+      "min": 1,
+      "max": 10,
+      "step": 1,
+      "label": "第3关过关碗数"
+    },
+    "baseCook": {
+      "value": 7,
+      "min": 3,
+      "max": 15,
+      "step": 0.5,
+      "label": "基础煮熟时长(秒)",
+      "desc": "慢火下从下锅到煮散的总时间"
+    },
+    "perfectStart": {
+      "value": 0.38,
+      "min": 0.1,
+      "max": 0.8,
+      "step": 0.01,
+      "label": "Q弹窗口起点",
+      "desc": "煮制进度达到该比例进入Q弹期"
+    },
+    "perfectEnd": {
+      "value": 0.78,
+      "min": 0.3,
+      "max": 0.95,
+      "step": 0.01,
+      "label": "Q弹窗口终点",
+      "desc": "窗口越窄越难抓准"
+    },
+    "maxNoodles": {
+      "value": 5,
+      "min": 2,
+      "max": 8,
+      "step": 1,
+      "label": "锅内面条上限",
+      "desc": "锅满后无法再下面"
+    },
+    "perfectScore": {
+      "value": 100,
+      "min": 10,
+      "max": 500,
+      "step": 10,
+      "label": "Q弹得分",
+      "desc": "基础分,连击倍增"
+    },
+    "earlyScore": {
+      "value": 40,
+      "min": 5,
+      "max": 200,
+      "step": 5,
+      "label": "夹生得分"
+    },
+    "lateScore": {
+      "value": 20,
+      "min": 5,
+      "max": 200,
+      "step": 5,
+      "label": "太软得分"
+    }
+  }
+}

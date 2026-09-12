@@ -1,0 +1,16 @@
+{
+  "difficulty": "普通",
+  "params": {
+    "lives": { "value": 3, "min": 1, "max": 10, "step": 1, "label": "生命值", "desc": "漏苹果或接毒果扣生命" },
+    "startSpeed": { "value": 260, "min": 100, "max": 500, "step": 10, "label": "初始下落速度", "desc": "游戏刚开始的水果速度" },
+    "maxSpeed": { "value": 640, "min": 200, "max": 1000, "step": 10, "label": "最快速度", "desc": "随时间加速的上限" },
+    "speedRamp": { "value": 6, "min": 0, "max": 20, "step": 1, "label": "加速幅度", "desc": "每秒速度增长量" },
+    "spawnGap": { "value": 0.9, "min": 0.3, "max": 2.5, "step": 0.05, "label": "初始出果间隔(秒)", "desc": "越小水果越密" },
+    "minSpawnGap": { "value": 0.35, "min": 0.15, "max": 1, "step": 0.05, "label": "最密出果间隔(秒)" },
+    "appleScore": { "value": 5, "min": 1, "max": 50, "step": 1, "label": "苹果基础分", "desc": "连击倍增" },
+    "goldScore": { "value": 10, "min": 1, "max": 100, "step": 1, "label": "金苹果分" },
+    "comboTime": { "value": 3, "min": 1, "max": 8, "step": 0.5, "label": "连击窗口(秒)", "desc": "窗口内连续接苹果保持连击" },
+    "badCost": { "value": 1, "min": 1, "max": 5, "step": 1, "label": "毒苹果扣血" },
+    "bombCost": { "value": 2, "min": 1, "max": 5, "step": 1, "label": "炸弹扣血" }
+  }
+}

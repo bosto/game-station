@@ -1,0 +1,174 @@
+{
+  "difficulty": "普通(已放宽)",
+  "params": {
+    "startGold": {
+      "value": 90,
+      "min": 30,
+      "max": 300,
+      "step": 10,
+      "label": "初始金币",
+      "desc": "开局可用于布置机关的金币数,越高越轻松"
+    },
+    "maxLives": {
+      "value": 8,
+      "min": 1,
+      "max": 20,
+      "step": 1,
+      "label": "生命值",
+      "desc": "漏怪扣到 0 即失败"
+    },
+    "winTime": {
+      "value": 90,
+      "min": 60,
+      "max": 300,
+      "step": 10,
+      "label": "守关时长(秒)",
+      "desc": "坚持到时间结束即获胜"
+    },
+    "maxTraps": {
+      "value": 8,
+      "min": 4,
+      "max": 16,
+      "step": 1,
+      "label": "机关上限",
+      "desc": "场上同时最多放置的机关数"
+    },
+    "spawnBase": {
+      "value": 2.2,
+      "min": 0.8,
+      "max": 5,
+      "step": 0.1,
+      "label": "怪物生成间隔(秒)",
+      "desc": "越小怪物越密集,难度越高"
+    },
+    "spawnMin": {
+      "value": 0.8,
+      "min": 0.3,
+      "max": 2,
+      "step": 0.1,
+      "label": "最密生成间隔(秒)",
+      "desc": "后期怪物生成最快有多密"
+    },
+    "spawnShrink": {
+      "value": 0.1,
+      "min": 0.05,
+      "max": 0.5,
+      "step": 0.01,
+      "label": "生成加速幅度",
+      "desc": "每波生成间隔缩短多少"
+    },
+    "speedRamp": {
+      "value": 0.03,
+      "min": 0,
+      "max": 0.3,
+      "step": 0.01,
+      "label": "怪物速度递增",
+      "desc": "每波怪物速度提升比例"
+    },
+    "monsterHpMult": {
+      "value": 0.9,
+      "min": 0.3,
+      "max": 3,
+      "step": 0.1,
+      "label": "怪物血量倍率",
+      "desc": "全局怪物血量系数"
+    },
+    "monsterSpeedMult": {
+      "value": 1,
+      "min": 0.3,
+      "max": 3,
+      "step": 0.1,
+      "label": "怪物速度倍率",
+      "desc": "全局怪物速度系数"
+    },
+    "coinScore": {
+      "value": 10,
+      "min": 1,
+      "max": 50,
+      "step": 1,
+      "label": "每金币得分",
+      "desc": "击杀获得的金币数量与得分比例"
+    },
+    "clampCost": {
+      "value": 12,
+      "min": 5,
+      "max": 50,
+      "step": 1,
+      "label": "夹子价格"
+    },
+    "clampHold": {
+      "value": 2.0,
+      "min": 0.5,
+      "max": 4,
+      "step": 0.1,
+      "label": "夹子持续时间(秒)",
+      "desc": "抓住怪物的时长"
+    },
+    "clampDmg": {
+      "value": 1.2,
+      "min": 0.5,
+      "max": 5,
+      "step": 0.5,
+      "label": "夹子伤害(每秒)",
+      "desc": "被夹期间每秒造成的伤害"
+    },
+    "clampCd": {
+      "value": 3,
+      "min": 1,
+      "max": 8,
+      "step": 0.5,
+      "label": "夹子冷却(秒)"
+    },
+    "fanCost": {
+      "value": 16,
+      "min": 5,
+      "max": 60,
+      "step": 1,
+      "label": "风扇价格"
+    },
+    "fanPush": {
+      "value": 0.12,
+      "min": 0.05,
+      "max": 0.5,
+      "step": 0.01,
+      "label": "风扇推力",
+      "desc": "把怪吹回路程(0-1),越大拖得越久"
+    },
+    "fanRadius": {
+      "value": 0.16,
+      "min": 0.05,
+      "max": 0.4,
+      "step": 0.01,
+      "label": "风扇影响范围"
+    },
+    "fanCd": {
+      "value": 5,
+      "min": 1,
+      "max": 10,
+      "step": 0.5,
+      "label": "风扇冷却(秒)"
+    },
+    "springCost": {
+      "value": 20,
+      "min": 5,
+      "max": 70,
+      "step": 1,
+      "label": "弹射板价格"
+    },
+    "springDmg": {
+      "value": 4,
+      "min": 1,
+      "max": 10,
+      "step": 1,
+      "label": "弹射连锁伤害",
+      "desc": "撞到其他怪时双方受到的伤害"
+    },
+    "springCd": {
+      "value": 4,
+      "min": 1,
+      "max": 10,
+      "step": 0.5,
+      "label": "弹射板冷却(秒)"
+    }
+  }
+}

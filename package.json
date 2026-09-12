@@ -1,0 +1,19 @@
+{
+  "name": "game-station",
+  "version": "0.2.0",
+  "description": "游戏发布站：本地 Agent(DeepSeek Harness 等)发布 HTML 游戏的平台，只做发布/托管/展示/统计，不含代码生成",
+  "main": "server.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "publish": "node scripts/publish.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.3.0",
+    "express": "^4.19.2"
+  }
+}

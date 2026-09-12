@@ -1,0 +1,546 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>单行道大亨 · 连锁塔防</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; user-select: none; }
+  body {
+    background: radial-gradient(120% 100% at 50% 0%, #1c2b3a 0%, #0a121c 70%);
+    min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    font-family: -apple-system, "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+    touch-action: none; overflow: hidden;
+  }
+  #wrap { position: relative; width: 100%; max-width: 430px; }
+  /* HUD */
+  #hud { display: flex; align-items: center; gap: 8px; padding: 10px 6px 8px; color: #dce9f2; font-weight: 700; flex-wrap: wrap; }
+  #hud .chip { background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.1); border-radius: 10px; padding: 5px 10px; font-size: 13px; }
+  #hud .chip b { color: #ffd75e; }
+  #hud .chip.gold b { color: #ffd75e; }
+  #hud .chip.heart b { color: #ff6b81; }
+  #hud .chip.score b { color: #7ef0a2; }
+  #hud .grow { flex: 1; }
+  canvas { display: block; width: 100%; height: auto; border-radius: 14px; box-shadow: 0 10px 40px rgba(0,0,0,.55); background: #0a121c; }
+  /* 陷阱栏 */
+  #trapbar { display: flex; gap: 8px; padding: 10px 4px 6px; }
+  #trapbar .trap-btn {
+    flex: 1; background: #141f2c; border: 2px solid #2b3d4f; border-radius: 12px; color: #dce9f2;
+    padding: 8px 4px; font-size: 12px; font-weight: 700; cursor: pointer; text-align: center; transition: all .15s;
+  }
+  #trapbar .trap-btn .icon { font-size: 22px; display: block; margin-bottom: 2px; }
+  #trapbar .trap-btn .cost { color: #ffd75e; font-size: 11px; }
+  #trapbar .trap-btn.active { border-color: #ffd75e; background: #1d2a16; box-shadow: 0 0 14px rgba(255,215,94,.35); transform: translateY(-2px); }
+  #trapbar .trap-btn:disabled { opacity: .45; cursor: not-allowed; }
+  /* 覆盖层 */
+  .overlay {
+    position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 12px; text-align: center; background: rgba(8,14,22,.8); color: #fff; border-radius: 14px;
+    backdrop-filter: blur(4px); padding: 20px; z-index: 10;
+  }
+  .overlay h1 { font-size: 30px; letter-spacing: 2px; text-shadow: 0 3px 0 rgba(0,0,0,.5); }
+  .overlay h2 { font-size: 24px; }
+  .overlay p { font-size: 13px; line-height: 1.9; color: #b9c8d6; max-width: 340px; }
+  .overlay .tip { background: rgba(255,215,94,.12); border: 1px solid rgba(255,215,94,.3); border-radius: 10px; padding: 8px 12px; font-size: 12px; color: #ffd75e; line-height: 1.7; max-width: 330px; }
+  .overlay .big { font-size: 42px; font-weight: 800; color: #ffd75e; }
+  .overlay .rate { font-size: 20px; font-weight: 700; }
+  button {
+    background: linear-gradient(180deg, #ffb400, #f09000); border: none; color: #3a2600; font-weight: 800;
+    font-size: 17px; padding: 12px 36px; border-radius: 30px; cursor: pointer; box-shadow: 0 5px 0 #b06c00;
+    transition: transform .08s, box-shadow .08s; margin-top: 4px;
+  }
+  button:active { transform: translateY(4px); box-shadow: 0 1px 0 #b06c00; }
+  .hint { font-size: 11.5px; opacity: .7; }
+  #toast {
+    position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%); z-index: 50;
+    background: #141f2c; border: 1px solid #ffd75e; color: #ffd75e; font-size: 13px; font-weight: 700;
+    padding: 8px 16px; border-radius: 20px; opacity: 0; transition: opacity .2s; pointer-events: none;
+  }
+  #toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <div id="hud">
+    <span class="chip gold">🪙 <b id="goldEl">60</b></span>
+    <span class="chip heart">❤️ <b id="livesEl">5</b></span>
+    <span class="chip score">⭐ <b id="scoreEl">0</b></span>
+    <span class="grow"></span>
+    <span class="chip">🌊 波 <b id="waveEl">1</b></span>
+    <span class="chip">⏱ <b id="timeEl">0:00</b></span>
+  </div>
+  <canvas id="cv"></canvas>
+  <div id="trapbar">
+    <button class="trap-btn active" data-t="clamp"><span class="icon">🪤</span>夹子<span class="cost">💰15</span></button>
+    <button class="trap-btn" data-t="fan"><span class="icon">🌀</span>风扇<span class="cost">💰20</span></button>
+    <button class="trap-btn" data-t="spring"><span class="icon">🛷</span>弹射板<span class="cost">💰25</span></button>
+  </div>
+
+  <div class="overlay" id="titleOverlay">
+    <h1>🛤️ 单行道大亨</h1>
+    <p>怪物沿唯一的路冲向城堡。<br>你在路边布置机关<b>改变它们的走法</b>,不是直接打死,而是连招!</p>
+    <div class="tip">
+      🪤 夹子:抓住怪物持续伤害<br>
+      🌀 风扇:把怪物<b>吹回起点</b>,拖延时间<br>
+      🛷 弹射板:把怪物<b>高速撞向</b>前面的怪,连锁伤害
+    </div>
+    <p style="font-size:12px">每漏一只怪 -1 生命 · 坚持 120 秒获胜</p>
+    <button id="startBtn">开始守路</button>
+    <span class="hint">点选下方机关 → 点道路放置 · 手机/鼠标均可</span>
+  </div>
+
+  <div class="overlay" id="endOverlay" style="display:none">
+    <h2 id="endTitle">胜利!</h2>
+    <div class="big" id="finalScore">0</div>
+    <div class="rate" id="finalRate"></div>
+    <p id="finalStats"></p>
+    <button id="againBtn">再守一局 🔄</button>
+  </div>
+</div>
+<div id="toast"></div>
+
+<script>
+(function () {
+  'use strict';
+  const cv = document.getElementById('cv');
+  const ctx = cv.getContext('2d');
+  const W = 420, H = 520, DPR = Math.min(window.devicePixelRatio || 1, 2);
+  cv.width = W * DPR; cv.height = H * DPR;
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  const $ = (id) => document.getElementById(id);
+
+  // ===== 难度参数(支持 params.json 动态覆盖,无需改代码) =====
+  const DEFAULT_PARAMS = {
+    startGold: 90, maxLives: 8, winTime: 90, maxTraps: 8,
+    spawnBase: 2.2, spawnMin: 0.8, spawnShrink: 0.1,
+    waveTimeStart: 20, waveTimeMin: 8, waveShrink: 1.5, speedRamp: 0.03,
+    monsterHpMult: 0.9, monsterSpeedMult: 1,
+    coinScore: 10,
+    clampCost: 12, clampHold: 2, clampDmg: 1.2, clampCd: 3,
+    fanCost: 16, fanPush: 0.12, fanRadius: 0.16, fanCd: 5,
+    springCost: 20, springBoost: 0.0016, springDmg: 4, springCd: 4,
+  };
+  let PRM = { ...DEFAULT_PARAMS };
+  const paramsReady = fetch('params.json')
+    .then((r) => (r.ok ? r.json() : null))
+    .then((d) => { if (d && d.params) for (const k in d.params) if (k in DEFAULT_PARAMS) PRM[k] = d.params[k].value; })
+    .catch(() => {});
+  // ===== 参数化结束 =====
+
+  // ---------- 道路(归一化折线) ----------
+  const PATH = [{ x: 0.03, y: 0.55 }, { x: 0.30, y: 0.34 }, { x: 0.62, y: 0.66 }, { x: 0.97, y: 0.42 }];
+  function P(i) { return { x: PATH[i].x * W, y: PATH[i].y * H }; }
+  function getPathPos(t) {
+    const seg = t * (PATH.length - 1);
+    const i = Math.min(PATH.length - 2, Math.floor(seg));
+    const f = seg - i;
+    const a = P(i), b = P(i + 1);
+    return { x: a.x + (b.x - a.x) * f, y: a.y + (b.y - a.y) * f };
+  }
+  function pathDir(t) {
+    const s = Math.max(0, Math.min(0.999, t));
+    const a = getPathPos(s), b = getPathPos(s + 0.001);
+    return Math.atan2(b.y - a.y, b.x - a.x);
+  }
+  // 点到道路最近距离
+  function distToPath(x, y) {
+    let best = 1e9, bt = 0;
+    for (let i = 0; i < PATH.length - 1; i++) {
+      const a = P(i), b = P(i + 1);
+      const abx = b.x - a.x, aby = b.y - a.y, len2 = abx * abx + aby * aby;
+      let t = ((x - a.x) * abx + (y - a.y) * aby) / len2;
+      t = Math.max(0, Math.min(1, t));
+      const dx = x - (a.x + abx * t), dy = y - (a.y + aby * t);
+      const d = Math.sqrt(dx * dx + dy * dy);
+      if (d < best) { best = d; bt = (i + t) / (PATH.length - 1); }
+    }
+    return { dist: best, t: bt };
+  }
+
+  // ---------- 全局状态 ----------
+  let state = 'title', gold = 60, lives = 5, score = 0, wave = 1, timeLeft = 0;
+  let monsters = [], traps = [], parts = [], floats = [];
+  let spawnTimer = 0, spawnInterval = 2.4, selected = 'clamp', elapsed = 0;
+  let last = 0, waveTimer = 20;
+
+  // ---------- 陷阱定义 ----------
+  const TRAPS = {
+    clamp:  { cost: 15, name: '夹子', icon: '🪤', cd: 3, hold: 1.5, dmg: 1 },
+    fan:    { cost: 20, name: '风扇', icon: '🌀', cd: 5, push: 0.16, radius: 0.16 },
+    spring: { cost: 25, name: '弹射板', icon: '🛷', cd: 4, boost: 0.0016, dmg: 3 },
+  };
+  const MONSTER_TYPES = [
+    { name: '土豆', hp: 3, speed: 0.004, money: 1, color: '#d8a24a', icon: '🥔' },
+    { name: '辣椒', hp: 2, speed: 0.007, money: 2, color: '#e74c3c', icon: '🌶️' },
+    { name: '石头', hp: 5, speed: 0.0022, money: 4, color: '#8d99ae', icon: '🪨' },
+    { name: '史莱姆', hp: 6, speed: 0.005, money: 3, color: '#4ecdc4', icon: '🟢', split: true, splitCount: 2, splitHp: 2, splitMoney: 1, splitIcon: '🟩' },
+  ];
+
+  // ---------- 音频 ----------
+  let ac = null;
+  function tone(f, d, type, v, delay) {
+    try {
+      ac = ac || new (window.AudioContext || window.webkitAudioContext)();
+      const t = ac.currentTime + (delay || 0), o = ac.createOscillator(), g = ac.createGain();
+      o.type = type || 'sine'; o.frequency.value = f;
+      g.gain.setValueAtTime(v || 0.07, t); g.gain.exponentialRampToValueAtTime(0.0001, t + d);
+      o.connect(g); g.connect(ac.destination); o.start(t); o.stop(t + d);
+    } catch (e) {}
+  }
+  const sfx = {
+    place: () => tone(300, 0.09, 'triangle', 0.1),
+    hit:   () => { tone(200, 0.07, 'square', 0.08); tone(150, 0.1, 'square', 0.05, 0.04); },
+    fan:   () => { tone(500, 0.25, 'sine', 0.08, 0); tone(700, 0.2, 'sine', 0.06, 0.06); },
+    spring:() => { tone(180, 0.12, 'sawtooth', 0.08); tone(300, 0.14, 'sawtooth', 0.06, 0.1); },
+    kill:  () => { tone(520, 0.08, 'triangle', 0.09); tone(760, 0.12, 'triangle', 0.08, 0.07); },
+    split: () => { tone(400, 0.1, 'triangle', 0.08); tone(600, 0.12, 'triangle', 0.06, 0.08); },
+    lose:  () => tone(140, 0.35, 'sawtooth', 0.12),
+    wave:  () => { [392, 523].forEach((f, i) => tone(f, 0.14, 'triangle', 0.09, i * 0.12)); },
+    win:   () => { [523, 659, 784, 1047].forEach((f, i) => tone(f, 0.2, 'triangle', 0.1, i * 0.13)); },
+    fail:  () => { [392, 311, 233].forEach((f, i) => tone(f, 0.3, 'sine', 0.1, i * 0.16)); },
+    cash:  () => tone(880, 0.06, 'sine', 0.05),
+  };
+
+  // ---------- 输入 ----------
+  function canvasPos(e) {
+    const r = cv.getBoundingClientRect();
+    const p = e.touches ? e.touches[0] : e;
+    return { x: (p.clientX - r.left) / r.width * W, y: (p.clientY - r.top) / r.height * H };
+  }
+  cv.addEventListener('pointerdown', (e) => { e.preventDefault(); if (state === 'playing') tryPlace(e); });
+  cv.addEventListener('touchstart', (e) => { e.preventDefault(); if (state === 'playing') tryPlace(e); }, { passive: false });
+
+  function tryPlace(e) {
+    const p = canvasPos(e);
+    const { dist, t } = distToPath(p.x, p.y);
+    if (dist > 26) { toast('要放在路上哦'); return; }
+    const cost = { clamp: PRM.clampCost, fan: PRM.fanCost, spring: PRM.springCost }[selected];
+    if (gold < cost) { toast('金币不够'); return; }
+    if (traps.length >= PRM.maxTraps) { toast(`机关位已满(最多${PRM.maxTraps}个)`); return; }
+    gold -= cost;
+    traps.push({ type: selected, t, x: p.x, y: p.y, cd: 0, holdT: 0, held: null });
+    sfx.place();
+    addPart(p.x, p.y - 10, TRAPS[selected].icon, 6);
+    updateHud();
+  }
+
+  // ---------- 放置/更新 ----------
+  function spawnMonster() {
+    const r = Math.random();
+    const type = r < 0.45 ? MONSTER_TYPES[0] : r < 0.75 ? MONSTER_TYPES[1] : r < 0.9 ? MONSTER_TYPES[2] : MONSTER_TYPES[3];
+    const spd = type.speed * PRM.monsterSpeedMult * (1 + (wave - 1) * 0.08);
+    monsters.push({ type, t: 0, hp: type.hp * PRM.monsterHpMult, alive: true, boost: 0, wob: Math.random() * 6.28, flash: 0, isSplit: false });
+  }
+
+  function splitMonster(m) {
+    const pos = getPathPos(m.t);
+    const type = m.type;
+    for (let i = 0; i < type.splitCount; i++) {
+      const splitType = {
+        ...type,
+        hp: type.splitHp,
+        money: type.splitMoney,
+        icon: type.splitIcon || type.icon,
+        split: false,
+      };
+      monsters.push({
+        type: splitType,
+        t: Math.max(0, m.t - 0.02 - i * 0.01),
+        hp: splitType.hp * PRM.monsterHpMult,
+        alive: true,
+        boost: 0,
+        wob: Math.random() * 6.28,
+        flash: 0.2,
+        isSplit: true,
+      });
+    }
+    addPart(pos.x, pos.y, '分裂!', 10);
+    sfx.split();
+  }
+
+  function update(dt) {
+    if (state !== 'playing') return;
+    elapsed += dt; timeLeft = Math.max(0, 120 - elapsed);
+    if (timeLeft <= 0) { timeLeft = 0; endGame(true); return; }
+
+    // 波次推进
+    waveTimer -= dt;
+    if (waveTimer <= 0) { wave++; waveTimer = Math.max(PRM.waveTimeMin, PRM.waveTimeStart - wave * PRM.waveShrink); sfx.wave(); addFloat(W / 2, 60, `🌊 第 ${wave} 波!`, '#7ef0a2', 22); }
+    spawnInterval = Math.max(PRM.spawnMin, PRM.spawnBase - wave * PRM.spawnShrink);
+    spawnTimer -= dt;
+    if (spawnTimer <= 0) { spawnMonster(); spawnTimer = spawnInterval * (0.7 + Math.random() * 0.6); }
+
+    // 陷阱冷却
+    for (const t of traps) if (t.cd > 0) t.cd -= dt;
+
+    // 怪物
+    for (let i = monsters.length - 1; i >= 0; i--) {
+      const m = monsters[i];
+      if (!m.alive) { monsters.splice(i, 1); continue; }
+      if (m.flash > 0) m.flash -= dt;
+      const pos = getPathPos(m.t);
+
+      // 夹子:抓住范围内第一个怪
+      for (const t of traps) {
+        if (t.type !== 'clamp' || t.cd > 0) continue;
+        if (t.held && !t.held.alive) t.held = null;
+        if (t.held === m && m.alive) {
+          t.holdT -= dt;
+          m.hp -= dt * (PRM.clampDmg / PRM.clampHold);
+          m.flash = 0.1;
+          if (t.holdT <= 0) { t.held = null; t.cd = PRM.clampCd; }
+          break;
+        }
+        if (!t.held && Math.abs(m.t - t.t) < 0.045) {
+          t.held = m; t.holdT = PRM.clampHold;
+          addPart(pos.x, pos.y - 14, '抓!', 8); sfx.hit();
+          break;
+        }
+      }
+      // 风扇:推开附近怪
+      for (const t of traps) {
+        if (t.type !== 'fan' || t.cd > 0) continue;
+        if (Math.abs(m.t - t.t) < PRM.fanRadius) {
+          m.t = Math.max(0, m.t - PRM.fanPush);
+          if (m.t === 0) { t.cd = PRM.fanCd; }
+          t.cd = PRM.fanCd;
+          addPart(pos.x, pos.y - 8, '🌀', 6);
+          sfx.fan();
+          break;
+        }
+      }
+      // 弹射板:加速撞击
+      for (const t of traps) {
+        if (t.type !== 'spring' || t.cd > 0) continue;
+        if (Math.abs(m.t - t.t) < 0.04) {
+          m.boost = PRM.springBoost;
+          t.cd = PRM.springCd;
+          addPart(pos.x, pos.y - 12, '弹!', 8); sfx.spring();
+          break;
+        }
+      }
+
+      // 移动
+      let speed = m.type.speed * (1 + (wave - 1) * 0.06);
+      if (m.boost > 0) { m.boost -= dt; speed += m.boost * 120; }
+      m.t += speed * dt * 60;
+      if (m.t >= 1) {
+        m.alive = false; lives--; sfx.lose();
+        shake = 1;
+        addFloat(W - 60, H * 0.42, '💔 漏怪!', '#ff6b81', 16);
+        if (lives <= 0) { lives = 0; updateHud(); endGame(false); return; }
+        updateHud();
+        continue;
+      }
+      // 弹射撞击连锁
+      if (m.boost > 0.0012) {
+        for (const o of monsters) {
+          if (o === m || !o.alive) continue;
+          if (Math.abs(o.t - m.t) < 0.03) {
+            const op = getPathPos(o.t);
+            o.hp -= PRM.springDmg; m.hp -= PRM.springDmg;
+            m.boost = 0;
+            addPart(op.x, op.y, '💥', 10); addPart(op.x, op.y, `-${PRM.springDmg}`, 10);
+            sfx.hit(); shake = 0.6;
+            break;
+          }
+        }
+      }
+      if (m.hp <= 0) killMonster(m);
+    }
+    updateHud();
+  }
+
+  function killMonster(m) {
+    m.alive = false;
+    const pos = getPathPos(m.t);
+    // 史莱姆分裂
+    if (m.type.split && !m.isSplit) {
+      splitMonster(m);
+    }
+    // 双倍金币: 击杀奖励翻倍 (金币和分数都翻倍)
+    score += m.type.money * PRM.coinScore * 2; 
+    gold += m.type.money * 2;
+    addFloat(pos.x, pos.y - 14, `+${m.type.money * 20}`, '#7ef0a2', 15);
+    addPart(pos.x, pos.y, m.type.icon, 10);
+    sfx.kill(); sfx.cash();
+    updateHud();
+  }
+
+  // ---------- 特效 ----------
+  function addFloat(x, y, text, color, size) { floats.push({ x, y, text, color, size: size || 14, t: 0 }); }
+  function addPart(x, y, text, n) {
+    for (let i = 0; i < (n || 6); i++) {
+      const a = Math.random() * 6.28, v = 30 + Math.random() * 60;
+      parts.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 20, life: 0.7, text: text || '' });
+    }
+  }
+  let shake = 0;
+  function updateFx(dt) {
+    for (let i = floats.length - 1; i >= 0; i--) { const f = floats[i]; f.t += dt; f.y -= 26 * dt; if (f.t > 1.2) floats.splice(i, 1); }
+    for (let i = parts.length - 1; i >= 0; i--) {
+      const p = parts[i]; p.x += p.vx * dt; p.y += p.vy * dt; p.vy += 200 * dt; p.life -= dt;
+      if (p.life <= 0) parts.splice(i, 1);
+    }
+    if (shake > 0) shake = Math.max(0, shake - dt * 2);
+  }
+
+  // ---------- 绘制 ----------
+  function draw(time) {
+    ctx.save();
+    if (shake > 0) ctx.translate((Math.random() - 0.5) * shake * 5, (Math.random() - 0.5) * shake * 5);
+    // 背景
+    const bg = ctx.createLinearGradient(0, 0, 0, H);
+    bg.addColorStop(0, '#16283a'); bg.addColorStop(1, '#0a121c');
+    ctx.fillStyle = bg; ctx.fillRect(-8, -8, W + 16, H + 16);
+    // 起点与终点
+    const s = P(0), e = P(PATH.length - 1);
+    ctx.fillStyle = 'rgba(126,240,162,.15)'; ctx.beginPath(); ctx.arc(s.x, s.y, 22, 0, 7); ctx.fill();
+    ctx.fillStyle = 'rgba(255,107,129,.15)'; ctx.beginPath(); ctx.arc(e.x, e.y, 22, 0, 7); ctx.fill();
+    ctx.font = '15px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('🏰', e.x, e.y);
+    // 道路
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    ctx.strokeStyle = '#3a4d5e'; ctx.lineWidth = 30;
+    ctx.beginPath();
+    PATH.forEach((p, i) => { const pt = P(i); if (i === 0) ctx.moveTo(pt.x, pt.y); else ctx.lineTo(pt.x, pt.y); });
+    ctx.stroke();
+    ctx.strokeStyle = '#5d7689'; ctx.lineWidth = 26; ctx.stroke();
+    ctx.strokeStyle = 'rgba(255,255,255,.12)'; ctx.lineWidth = 3; ctx.setLineDash([10, 14]);
+    ctx.beginPath();
+    PATH.forEach((p, i) => { const pt = P(i); if (i === 0) ctx.moveTo(pt.x, pt.y); else ctx.lineTo(pt.x, pt.y); });
+    ctx.stroke(); ctx.setLineDash([]);
+    // 陷阱
+    for (const t of traps) {
+      const cdMax = { clamp: PRM.clampCd, fan: PRM.fanCd, spring: PRM.springCd }[t.type] || 3;
+      const ready = t.cd <= 0;
+      ctx.save();
+      // 降低透明度: 从0.55提升到0.8 (更清晰)
+      ctx.globalAlpha = ready ? 1 : 0.8;
+      ctx.font = '20px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.shadowColor = '#ffd75e'; ctx.shadowBlur = ready ? 12 : 0;
+      ctx.fillText(TRAPS[t.type].icon, t.x, t.y);
+      ctx.restore();
+      if (t.cd > 0) {
+        ctx.strokeStyle = 'rgba(255,255,255,.35)'; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.arc(t.x, t.y, 13, -Math.PI / 2, -Math.PI / 2 + (1 - t.cd / cdMax) * Math.PI * 2); ctx.stroke();
+      }
+    }
+    // 怪物
+    for (const m of monsters) {
+      const pos = getPathPos(m.t);
+      const dir = pathDir(m.t);
+      const bob = Math.sin(time * 6 + m.wob) * 3;
+      ctx.save();
+      ctx.translate(pos.x, pos.y + bob);
+      ctx.rotate(dir + Math.PI / 2);
+      const fontSize = m.isSplit ? 14 : 20 + (m.type.icon === '🪨' ? 4 : 0);
+      ctx.font = `${fontSize}px sans-serif`;
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      if (m.flash > 0) ctx.globalAlpha = 0.5 + Math.sin(time * 30) * 0.3;
+      ctx.fillText(m.type.icon, 0, 0);
+      ctx.restore();
+      // 血条
+      const w = m.isSplit ? 18 : 26, ratio = Math.max(0, m.hp / m.type.hp);
+      ctx.fillStyle = 'rgba(0,0,0,.45)'; ctx.fillRect(pos.x - w / 2, pos.y - 22, w, 4);
+      ctx.fillStyle = ratio > 0.5 ? '#7ef0a2' : ratio > 0.25 ? '#ffd75e' : '#ff6b81';
+      ctx.fillRect(pos.x - w / 2, pos.y - 22, w * ratio, 4);
+    }
+    // 风扇特效
+    for (const t of traps) {
+      if (t.type !== 'fan' || t.cd > 0) continue;
+      const a = time * 8;
+      ctx.fillStyle = `rgba(126,180,255,${0.18 + Math.sin(a) * 0.08})`;
+      ctx.font = '16px sans-serif'; ctx.textAlign = 'center';
+      ctx.fillText('🌀', t.x + Math.sin(a) * 5, t.y + Math.cos(a) * 3);
+    }
+    // 粒子与飘字
+    for (const p of parts) {
+      ctx.globalAlpha = Math.max(0, p.life / 0.7);
+      ctx.font = `${11 + (1 - p.life / 0.7) * 8}px sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillStyle = '#fff';
+      ctx.fillText(p.text, p.x, p.y);
+      ctx.globalAlpha = 1;
+    }
+    for (const f of floats) {
+      ctx.globalAlpha = Math.max(0, 1 - f.t / 1.2);
+      ctx.font = `bold ${f.size}px sans-serif`; ctx.textAlign = 'center';
+      ctx.fillStyle = f.color;
+      ctx.strokeStyle = 'rgba(0,0,0,.5)'; ctx.lineWidth = 3;
+      ctx.strokeText(f.text, f.x, f.y); ctx.fillText(f.text, f.x, f.y);
+      ctx.globalAlpha = 1;
+    }
+    ctx.restore();
+  }
+
+  // ---------- HUD / 流程 ----------
+  function updateHud() {
+    $('goldEl').textContent = gold;
+    $('livesEl').textContent = lives;
+    $('scoreEl').textContent = score;
+    $('waveEl').textContent = wave;
+    const s = Math.floor(timeLeft), m = Math.floor(s / 60);
+    $('timeEl').textContent = `${m}:${String(s % 60).padStart(2, '0')}`;
+    // 陷阱按钮可用性
+    for (const key of Object.keys(TRAPS)) {
+      const btn = document.querySelector(`.trap-btn[data-t="${key}"]`);
+      const cost = { clamp: PRM.clampCost, fan: PRM.fanCost, spring: PRM.springCost }[key];
+      if (btn) btn.disabled = gold < cost;
+    }
+  }
+
+  let toastTimer;
+  function toast(msg) {
+    const el = $('toast');
+    el.textContent = msg; el.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => el.classList.remove('show'), 1200);
+  }
+
+  function endGame(win) {
+    state = 'over';
+    if (win) { sfx.win(); $('endTitle').textContent = '🎉 守住单行道!'; }
+    else { sfx.fail(); $('endTitle').textContent = '💔 城堡被攻破了'; }
+    $('finalScore').textContent = score;
+    const rate = score >= 2400 ? '传奇大亨 👑' : score >= 1600 ? '金牌守路人 🥇' : score >= 800 ? '熟练守路人 🥈' : '见习守路人 🥉';
+    $('finalRate').textContent = rate;
+    $('finalStats').textContent = `撑到第 ${wave} 波 · 得分 ${score}`;
+    $('endOverlay').style.display = 'flex';
+  }
+
+  async function startGame() {
+    await paramsReady;
+    gold = PRM.startGold; lives = PRM.maxLives; score = 0; wave = 1; timeLeft = PRM.winTime; elapsed = 0;
+    monsters = []; traps = []; parts = []; floats = [];
+    spawnTimer = 0; spawnInterval = PRM.spawnBase; waveTimer = PRM.waveTimeStart; shake = 0;
+    $('titleOverlay').style.display = 'none';
+    $('endOverlay').style.display = 'none';
+    state = 'playing';
+    updateHud();
+  }
+
+  document.querySelectorAll('.trap-btn').forEach((b) => {
+    b.addEventListener('click', () => {
+      selected = b.dataset.t;
+      document.querySelectorAll('.trap-btn').forEach((x) => x.classList.toggle('active', x === b));
+      sfx.place();
+    });
+  });
+  $('startBtn').onclick = () => { if (ac && ac.state === 'suspended') ac.resume(); startGame(); };
+  $('againBtn').onclick = startGame;
+
+  // ---------- 主循环 ----------
+  function loop(ts) {
+    const dt = Math.min((ts - last) / 1000, 0.05);
+    last = ts;
+    update(dt);
+    updateFx(dt);
+    draw(ts / 1000);
+    requestAnimationFrame(loop);
+  }
+  last = performance.now();
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,17 @@
+# 依赖与缓存
+node_modules/
+.npm-cache/
+
+# 运行时数据(数据库、截图等)
+data/
+
+# 配置(含管理员密码与令牌,勿提交!用 config.example.json 作模板)
+config.json
+
+# 备份文件
+*.bak-*
+*.bak
+
+# 系统文件
+.DS_Store
+*.log
