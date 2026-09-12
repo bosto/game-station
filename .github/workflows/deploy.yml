@@ -42,9 +42,9 @@ jobs:
       - name: 公网健康检查
         run: |
           for i in $(seq 1 20); do
-            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 https://game.bosto.chat/api/health 2>/dev/null || true)
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 https://game.bosto.tech/api/health 2>/dev/null || true)
             if [ "${code}" = "200" ]; then
-              echo "✅ https://game.bosto.chat 已恢复"
+              echo "✅ https://game.bosto.tech 已恢复"
               exit 0
             fi
             sleep 5

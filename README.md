@@ -70,7 +70,7 @@ game-station/
 
 ## 部署到公网
 
-**当前正式地址:https://game.bosto.chat** (Cloudflare 命名隧道 + 自有域名)
+**当前正式地址:https://game.bosto.tech** (Cloudflare 命名隧道 + 自有域名;旧地址 game.bosto.chat 仍可用)
 
 需要保持运行的两个进程:
 
