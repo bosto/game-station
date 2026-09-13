@@ -85,6 +85,24 @@ cloudflared --config /Users/yes/.cloudflared/config.yml tunnel run  # launchd �
 > 对外公开后,所有管理/发布 API 都由 `adminToken` 保护;公开玩家只能看到主页和公开试玩。
 > Agent 发布时请通过环境变量 `GAME_STATION_TOKEN` 传令牌,避免写进对话/日志。
 
+## CI/CD 自动部署
+
+推送 `main` 分支自动触发 GitHub Actions(也可在 Actions 页手动触发 deploy):
+
+| 工作流 | 触发 | 运行环境 | 内容 |
+| --- | --- | --- | --- |
+| `.github/workflows/ci.yml` | push main / PR | GitHub 托管 ubuntu | 语法检查 + 发布全链路冒烟测试 |
+| `.github/workflows/deploy.yml` | push main / 手动 | 本机 self-hosted runner(label `macos-local`) | 冒烟测试 → 同步代码到运行目录 → 重启服务 → 公网健康检查 |
+
+部署链路:`git push` → 冒烟测试(临时端口 3211,不打扰线上 3210)→ `scripts/deploy.sh` 把代码 `rsync` 到运行目录并 `npm ci` → `launchctl` 重启 `com.yes.game-station` → 探测 `https://game.bosto.tech/api/health` 恢复 200。
+
+> - 冒烟测试由 `scripts/ci-smoke.sh` 统一完成(两个工作流共用);启动前会自动清理端口 3211 的残留进程,
+>   避免上次被取消的 run 留下旧代码服务导致假绿。
+> - 部署任务串行排队(`concurrency`),不会中途打断正在执行的部署。
+> - `deploy.sh` 同步时保留 `games/`(本地发布但未提交 git 的游戏)与 `config.json`/`data/`(密钥与数据库)。
+> - ⚠️ 运行目录就是 git 仓库本身:部署会用已提交代码覆盖本地改动,未提交的修改会被冲掉,
+>   需要改动请先 commit + push。
+
 ## 安全性说明
 
 - 公开页面(主页/试玩/游戏文件/公开 API/试玩计数):任何人可访问
