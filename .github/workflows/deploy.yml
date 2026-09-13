@@ -5,9 +5,14 @@ on:
     branches: [main]
   workflow_dispatch:
 
+# 部署串行排队、不打断:取消正在执行的部署会在 rsync/npm ci 中途留下半同步状态,
+# 对线上服务更危险;让后续 push 排队依次部署(部署本身幂等,重复部署同一提交无害)。
 concurrency:
   group: deploy-game-station
-  cancel-in-progress: true
+  cancel-in-progress: false
+
+permissions:
+  contents: read
 
 jobs:
   deploy:
@@ -25,16 +30,7 @@ jobs:
         run: npm ci
 
       - name: 新代码冒烟测试(临时端口 3211,不打扰线上服务)
-        run: |
-          cp config.example.json config.json
-          node -e "const fs=require('fs');const c=JSON.parse(fs.readFileSync('config.json'));c.port=3211;c.adminToken='ci-token';c.adminPass='ci-pass-123';fs.writeFileSync('config.json',JSON.stringify(c))"
-          node server.js & SERVER_PID=$!
-          trap "kill $SERVER_PID 2>/dev/null || true" EXIT
-          for i in $(seq 1 20); do
-            curl -sf http://127.0.0.1:3211/api/health >/dev/null 2>&1 && break
-            sleep 1
-          done
-          node scripts/smoke.mjs --url http://127.0.0.1:3211 --token ci-token
+        run: bash scripts/ci-smoke.sh --port 3211 --token ci-token
 
       - name: 部署到本机
         run: bash scripts/deploy.sh

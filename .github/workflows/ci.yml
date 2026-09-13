@@ -5,9 +5,13 @@ on:
     branches: [main]
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v5
 
@@ -29,13 +33,4 @@ jobs:
           node --check public/admin.js
 
       - name: 启动服务并跑发布流程冒烟测试
-        run: |
-          cp config.example.json config.json
-          node -e "const fs=require('fs');const c=JSON.parse(fs.readFileSync('config.json'));c.port=3211;c.adminToken='ci-token';c.adminPass='ci-pass-123';fs.writeFileSync('config.json',JSON.stringify(c))"
-          node server.js & SERVER_PID=$!
-          trap "kill $SERVER_PID 2>/dev/null || true" EXIT
-          for i in $(seq 1 20); do
-            curl -sf http://127.0.0.1:3211/api/health >/dev/null 2>&1 && break
-            sleep 1
-          done
-          node scripts/smoke.mjs --url http://127.0.0.1:3211 --token ci-token
+        run: bash scripts/ci-smoke.sh --port 3211 --token ci-token
