@@ -13,7 +13,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { spawnSync } from 'node:child_process';
+import { spawnSync, spawn } from 'node:child_process';
 import http from 'node:http';
 import { validateGameManifest } from './lib/validate.mjs';
 import { buildProject } from './lib/build.mjs';
@@ -183,6 +183,56 @@ function cmdDev(slug, port) {
   });
 }
 
+// ---------- screenshot ----------
+function cmdScreenshot(slug) {
+  const { d, m } = readManifest(slug);
+  const r = buildProject({ projectDir: d, outRoot: ARTIFACTS, version: m.version });
+  if (r.refErrors.length) fail(`❌ build 失败:\n  - ${r.refErrors.join('\n  - ')}`);
+  const chrome = process.env.CHROME_BIN || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+  if (!fs.existsSync(chrome)) fail(`❌ 未找到 Chrome: ${chrome}(可设置 CHROME_BIN)`);
+  const store = path.join(d, 'store');
+  fs.mkdirSync(store, { recursive: true });
+  const size = m.recommendedSize || { width: 800, height: 600 };
+  const port = 4200 + Math.floor(Math.random() * 400);
+  const types = { '.html': 'text/html', '.js': 'application/javascript', '.css': 'text/css', '.json': 'application/json', '.png': 'image/png', '.jpg': 'image/jpeg' };
+  const server = http.createServer((req, res) => {
+    let p2 = decodeURIComponent(new URL(req.url, 'http://x').pathname);
+    if (p2 === '/') p2 = '/' + (m.entry || 'index.html');
+    const f = path.resolve(r.webDir, '.' + p2);
+    if (!f.startsWith(r.webDir + path.sep) || !fs.existsSync(f) || fs.statSync(f).isDirectory()) { res.writeHead(404); return res.end(); }
+    res.writeHead(200, { 'Content-Type': types[path.extname(f)] || 'application/octet-stream' });
+    fs.createReadStream(f).pipe(res);
+  });
+  server.listen(port, '127.0.0.1', () => {
+    const url = `http://127.0.0.1:${port}/`;
+    const shots = ['cover.png', 'screenshot-1.png'];
+    let pending = shots.length;
+    const finish = () => { if (--pending <= 0) { server.close(); ok({ ok: true, slug, storeDir: `projects/${slug}/store`, size }); } };
+    for (const name of shots) {
+      const out = path.join(store, name);
+      const profile = `/tmp/ch-shot-${slug}-${Date.now()}`;
+      const proc = spawn(chrome, [
+        '--headless=new', '--disable-gpu', '--no-sandbox', '--hide-scrollbars',
+        `--user-data-dir=${profile}`, `--window-size=${size.width},${size.height}`,
+        '--virtual-time-budget=6000', `--screenshot=${out}`, url,
+      ], { stdio: 'ignore' });
+      // 看门狗:截图文件出现或超时 20s 即终止 Chrome(rAF 游戏不自动退出)
+      const t0 = Date.now();
+      const timer = setInterval(() => {
+        if (fs.existsSync(out) && fs.statSync(out).size > 0) {
+          clearInterval(timer); proc.kill('SIGKILL');
+          console.log(`  📸 ${name}: ${(fs.statSync(out).size / 1024).toFixed(1)} KB`);
+          finish();
+        } else if (Date.now() - t0 > 20000) {
+          clearInterval(timer); proc.kill('SIGKILL');
+          console.log(`  ⚠ ${name}: 超时未生成`);
+          finish();
+        }
+      }, 400);
+    }
+  });
+}
+
 // ---------- list ----------
 function cmdList() {
   if (!fs.existsSync(PROJECTS)) return ok([]);
@@ -214,6 +264,7 @@ function main() {
     case 'package': return cmdPackage(slug, pick('targets', 'web'), pick('version', null));
     case 'publish': return cmdPublish(slug, { stage: flag('stage'), activate: pick('activate', null), publish: flag('publish'), version: pick('version', null) });
     case 'dev': return cmdDev(slug, pick('port', null));
+    case 'screenshot': return cmdScreenshot(slug);
     case 'list': return cmdList();
     default:
       fail('用法:\n  game new <slug> --template <html-canvas|phaser>\n  game check <slug> [--json]\n  game build <slug> [--version v]\n  game package <slug> [--targets web]\n  game publish <slug> [--stage|--activate v] [--publish]\n  game dev <slug> [--port]\n  game list');

@@ -52,5 +52,5 @@
     }
   },
   "licenses": "store/LICENSE.md",
-  "notes": "已在 game-station 上线(live)。参数见 params.json(startGold/maxLives/winTime/maxTraps 等,已放宽)。待办:完整玩法循环与较长会话实测、封面/截图/操作说明真实文件。"
+  "notes": "已在 game-station 上线(live)。store 素材已生成。itch: ready。待办:完整玩法循环实测。"
 }

@@ -58,5 +58,5 @@
     }
   },
   "licenses": "store/LICENSE.md",
-  "notes": "P1 已修正 /app.js、/vendor/phaser.min.js 为相对路径;Phaser 3.90 本地 vendor;设计文档归档于 store/design.html。待办:在 game-station 发布(platforms.station 尚未 live)、封面/截图/操作说明真实文件、统一 Phaser 构建来源与第三方许可证核对。"
+  "notes": "P1 迁入 projects,资源改相对路径,设计文档在 store/design.html,store 素材已生成。itch: ready。待办:在 game-station 发布(platforms.station=not-started)、统一 Phaser 构建来源与第三方许可证核对。"
 }

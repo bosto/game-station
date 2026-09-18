@@ -52,5 +52,5 @@
     }
   },
   "licenses": "store/LICENSE.md",
-  "notes": "已在 game-station 上线(live)。P1 已补上缺失的 params.json(8 个参数,消除预期内 404)。待办:封面/截图/操作说明真实文件。"
+  "notes": "已在 game-station 上线(live)。P1 补齐 params.json(消除 404),store 素材已生成。itch: ready。"
 }
