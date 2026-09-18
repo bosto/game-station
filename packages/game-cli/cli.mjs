@@ -108,11 +108,10 @@ function cmdBuild(slug, version) {
 }
 
 // ---------- package ----------
-function cmdPackage(slug, targets, version) {
-  const targetsArr = (targets || 'web').split(',').map((s) => s.trim()).filter(Boolean);
+function doPackage(slug, targetsArr, version) {
   const { d, m } = readManifest(slug);
   const r = buildProject({ projectDir: d, outRoot: ARTIFACTS, version });
-  if (r.refErrors.length) fail(`❌ build 失败:\n  - ${r.refErrors.join('\n  - ')}`);
+  if (r.refErrors.length) throw new Error(`build 失败:\n  - ${r.refErrors.join('\n  - ')}`);
   const artDir = path.join(ARTIFACTS, slug, r.version);
   const made = [];
   for (const t of targetsArr) {
@@ -120,25 +119,54 @@ function cmdPackage(slug, targets, version) {
       const zipPath = path.join(artDir, t === 'itch' ? 'itch.zip' : 'web.zip');
       // 在 web 目录内打包,保证 ZIP 根目录直接包含 index.html(符合网页平台要求)
       const res = spawnSync('zip', ['-r', '-q', zipPath, '.'], { cwd: r.webDir });
-      if (res.status !== 0) fail(`❌ 打包失败: ${res.stderr?.toString() || 'zip 错误'}`);
+      if (res.status !== 0) throw new Error(`打包失败: ${res.stderr?.toString() || 'zip 错误'}`);
       if (t === 'itch') {
-        // itch 专项校验(入口/相对路径/绝对路径/外部依赖/规模)
         const p = checkItch({ manifest: m, webDir: r.webDir });
-        if (!p.ok) fail(`❌ itch 校验失败:\n  - ${p.errors.join('\n  - ')}`);
-        console.log(`  ✓ itch 校验通过(${p.warnings.join('; ')})`);
+        if (!p.ok) throw new Error(`itch 校验失败:\n  - ${p.errors.join('\n  - ')}`);
+        console.log(`    ✓ ${slug} itch 校验通过`);
       }
       made.push(t === 'itch' ? 'itch.zip' : 'web.zip');
     } else if (t === 'source') {
-      // 源码包:项目目录(不含 .git / artifacts),默认私有
       const zipPath = path.join(artDir, 'source.zip');
       const res = spawnSync('zip', ['-r', '-q', zipPath, '.'], { cwd: d });
-      if (res.status !== 0) fail(`❌ 源码打包失败: ${res.stderr?.toString() || 'zip 错误'}`);
+      if (res.status !== 0) throw new Error(`源码打包失败: ${res.stderr?.toString() || 'zip 错误'}`);
       made.push('source.zip');
     } else {
-      console.warn(`  ⚠ 目标 ${t} 尚未实现适配器,已跳过`);
+      console.warn(`    ⚠ 目标 ${t} 尚未实现适配器,已跳过`);
     }
   }
-  ok({ ok: true, slug, version: r.version, dir: artDir.replace(REPO_ROOT + path.sep, ''), made });
+  return { artDir, made };
+}
+
+function cmdPackage(slug, targets, version) {
+  const targetsArr = (targets || 'web').split(',').map((s) => s.trim()).filter(Boolean);
+  try {
+    const { artDir, made } = doPackage(slug, targetsArr, version);
+    ok({ ok: true, slug, version, dir: artDir.replace(REPO_ROOT + path.sep, ''), made });
+  } catch (e) {
+    fail('❌ ' + e.message);
+  }
+}
+
+// ---------- export-all ----------
+function cmdExportAll(targets, version) {
+  const targetsArr = (targets || 'web,itch,source').split(',').map((s) => s.trim()).filter(Boolean);
+  const items = fs.readdirSync(PROJECTS, { withFileTypes: true })
+    .filter((e) => e.isDirectory() && fs.existsSync(path.join(PROJECTS, e.name, 'game.json')))
+    .map((e) => e.name);
+  if (!items.length) fail('❌ 没有可导出的项目');
+  let failed = 0;
+  for (const slug of items) {
+    try {
+      const { artDir, made } = doPackage(slug, targetsArr, version);
+      console.log(`  ✓ ${slug}: ${made.join(', ')}`);
+    } catch (e) {
+      failed++;
+      console.error(`  ✗ ${slug}: ${e.message}`);
+    }
+  }
+  if (failed) fail(`❌ export-all 完成,${failed}/${items.length} 个失败`);
+  ok({ ok: true, exported: items.length, targets: targetsArr });
 }
 
 // ---------- publish ----------
@@ -156,6 +184,33 @@ function cmdPublish(slug, opts) {
   if (opts.publish) args.push('--publish');
   const res = spawnSync(process.execPath, args, { stdio: 'inherit' });
   process.exit(res.status ?? 1);
+}
+
+// ---------- rollback / promote ----------
+async function apiCall(slug, urlPath, method, body) {
+  const base = String(process.env.GAME_STATION_URL || 'http://127.0.0.1:3210').replace(/\/+$/, '');
+  const token = process.env.GAME_STATION_TOKEN || '';
+  const res = await fetch(base + urlPath, {
+    method,
+    headers: { 'Content-Type': 'application/json', ...(token ? { 'x-admin-token': token } : {}) },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const text = await res.text();
+  let data = null;
+  try { data = JSON.parse(text); } catch (e) {}
+  if (!res.ok) throw new Error(`${method} ${urlPath} → ${res.status} ${data?.error || data?.message || text.slice(0, 200)}`);
+  return data;
+}
+async function cmdRollback(slug, releaseId) {
+  if (!slug || !releaseId) fail('用法: game rollback <slug> --release <id>');
+  const d = await apiCall(slug, `/api/games/${slug}/rollback`, 'POST', { releaseId: Number(releaseId) });
+  ok({ ok: true, slug, restored: d.restored, releaseId });
+}
+async function cmdPromote(slug, releaseId) {
+  if (!slug || !releaseId) fail('用法: game promote <slug> --release <id>');
+  const d = await apiCall(slug, `/api/games/${slug}/rollback`, 'POST', { releaseId: Number(releaseId) });
+  await apiCall(slug, `/api/games/${slug}`, 'PATCH', { playable: true });
+  ok({ ok: true, slug, promoted: d.restored, releaseId, playable: true });
 }
 
 // ---------- dev ----------
@@ -330,9 +385,12 @@ async function main() {
     case 'dev': return cmdDev(slug, pick('port', null));
     case 'screenshot': return cmdScreenshot(slug);
     case 'test': return await cmdTest(slug, flag('browser'));
+    case 'export-all': return cmdExportAll(pick('targets', 'web,itch,source'), pick('version', null));
+    case 'rollback': return await cmdRollback(slug, pick('release', null));
+    case 'promote': return await cmdPromote(slug, pick('release', null));
     case 'list': return cmdList();
     default:
-      fail('用法:\n  game new <slug> --template <html-canvas|phaser>\n  game check <slug> [--json|--platform itch]\n  game build <slug> [--version v]\n  game package <slug> [--targets web,itch,source]\n  game publish <slug> [--stage|--activate v] [--publish]\n  game test <slug> --browser\n  game dev <slug> [--port]\n  game screenshot <slug>\n  game list');
+      fail('用法:\n  game new <slug> --template <html-canvas|phaser>\n  game check <slug> [--json|--platform itch]\n  game build <slug> [--version v]\n  game package <slug> [--targets web,itch,source]\n  game publish <slug> [--stage|--activate v] [--publish]\n  game test <slug> --browser\n  game dev <slug> [--port]\n  game screenshot <slug>\n  game export-all [--targets web,itch,source]\n  game rollback <slug> --release <id>\n  game promote <slug> --release <id>\n  game list');
   }
 }
 main().then((code) => { if (typeof code === 'number') process.exit(code); }).catch((e) => { console.error('❌ ' + e.message); process.exit(1); });
