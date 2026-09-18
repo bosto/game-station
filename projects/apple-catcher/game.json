@@ -52,5 +52,5 @@
     }
   },
   "licenses": "store/LICENSE.md",
-  "notes": "已在 game-station 上线(live)。store 素材已生成(cover/screenshot/instructions/changelog)。itch: ready(可导出,缺 projectId,未提交)。"
+  "notes": "已在 game-station 上线(live)。store 素材已生成(cover/screenshot/instructions/changelog)。itch: ready(可导出,缺 projectId,未提交)。 浏览器玩法测试通过(game test --browser: 加载/开始/操作,0 控制台错误)。"
 }

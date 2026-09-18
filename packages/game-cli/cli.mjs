@@ -18,6 +18,7 @@ import http from 'node:http';
 import { validateGameManifest } from './lib/validate.mjs';
 import { buildProject } from './lib/build.mjs';
 import { checkItch, checkPlatformStatus } from './lib/platforms.mjs';
+import { browserTest } from './lib/browsertest.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.join(__dirname, '..', '..');
@@ -170,7 +171,9 @@ function cmdDev(slug, port) {
     '.webm': 'video/webm',
   };
   http.createServer((req, res) => {
-    let p2 = decodeURIComponent(new URL(req.url, 'http://x').pathname);
+    const u = new URL(req.url, 'http://x');
+    if (u.pathname === '/favicon.ico') { res.writeHead(204); return res.end(); }
+    let p2 = decodeURIComponent(u.pathname);
     if (p2 === '/') p2 = '/' + entry;
     const f = path.resolve(root, '.' + p2);
     if (!f.startsWith(root + path.sep) || !fs.existsSync(f) || fs.statSync(f).isDirectory()) {
@@ -196,7 +199,9 @@ function cmdScreenshot(slug) {
   const port = 4200 + Math.floor(Math.random() * 400);
   const types = { '.html': 'text/html', '.js': 'application/javascript', '.css': 'text/css', '.json': 'application/json', '.png': 'image/png', '.jpg': 'image/jpeg' };
   const server = http.createServer((req, res) => {
-    let p2 = decodeURIComponent(new URL(req.url, 'http://x').pathname);
+    const u = new URL(req.url, 'http://x');
+    if (u.pathname === '/favicon.ico') { res.writeHead(204); return res.end(); }
+    let p2 = decodeURIComponent(u.pathname);
     if (p2 === '/') p2 = '/' + (m.entry || 'index.html');
     const f = path.resolve(r.webDir, '.' + p2);
     if (!f.startsWith(r.webDir + path.sep) || !fs.existsSync(f) || fs.statSync(f).isDirectory()) { res.writeHead(404); return res.end(); }
@@ -233,6 +238,65 @@ function cmdScreenshot(slug) {
   });
 }
 
+// ---------- test (browser) ----------
+async function cmdTest(slug, browser) {
+  const { d, m } = readManifest(slug);
+  const r = buildProject({ projectDir: d, outRoot: ARTIFACTS, version: m.version });
+  if (r.refErrors.length) fail(`❌ build 失败:\n  - ${r.refErrors.join('\n  - ')}`);
+  if (!browser) {
+    console.log(`ℹ ${slug} 通过了 check/build;浏览器玩法测试请加 --browser`);
+    return 0;
+  }
+  const size = m.recommendedSize || { width: 800, height: 600 };
+  const port = 4300 + Math.floor(Math.random() * 500);
+  const types = { '.html': 'text/html', '.js': 'application/javascript', '.css': 'text/css', '.json': 'application/json', '.png': 'image/png', '.jpg': 'image/jpeg' };
+  const server = http.createServer((req, res) => {
+    const u = new URL(req.url, 'http://x');
+    if (u.pathname === '/favicon.ico') { res.writeHead(204); return res.end(); } // 消除 favicon 误报,保留真实缺失资源 404
+    let p2 = decodeURIComponent(u.pathname);
+    if (p2 === '/') p2 = '/' + (m.entry || 'index.html');
+    const f = path.resolve(r.webDir, '.' + p2);
+    if (!f.startsWith(r.webDir + path.sep) || !fs.existsSync(f) || fs.statSync(f).isDirectory()) { res.writeHead(404); return res.end(); }
+    res.writeHead(200, { 'Content-Type': types[path.extname(f)] || 'application/octet-stream' });
+    fs.createReadStream(f).pipe(res);
+  });
+  await new Promise((res) => server.listen(port, '127.0.0.1', res));
+  const url = `http://127.0.0.1:${port}/`;
+  const tapPoints = [
+    [Math.round(size.width / 2), Math.round(size.height / 2)],
+    [Math.round(size.width / 2) + 60, Math.round(size.height / 2) + 40],
+    [Math.round(size.width / 2) - 40, Math.round(size.height / 2) - 30],
+  ];
+  const artDir = path.join(ARTIFACTS, slug, r.version);
+  const report = await browserTest({
+    url,
+    screenshotPath: path.join(artDir, 'browser-test.png'),
+    actions: {
+      // 点开始/重开(按常见 id 与文本兜底)
+      start: `(() => {
+        const ids=['startBtn','start-btn','newRun','restart-btn','restartBtn','playBtn'];
+        for (const id of ids){ const el=document.getElementById(id); if(el){ el.click(); return id; } }
+        const b=[...document.querySelectorAll('button')].find(b=>/开始|新的远征|重新开始|重开|start/i.test(b.textContent||''));
+        if(b){ b.click(); return 'text:'+(b.textContent||'').trim().slice(0,12); }
+        return null;
+      })()`,
+      waitAfterStart: 1800,
+      tapPoints,
+      finalState: `(() => ({
+        title: document.title,
+        hasCanvas: !!document.querySelector('canvas'),
+        bodyLen: document.body.innerText.length,
+        startOverlayVisible: (() => { const o=document.getElementById('start-overlay')||document.getElementById('overlay'); return o ? !o.classList.contains('hidden') && o.style.display !== 'none' : false; })()
+      }))()`,
+    },
+  });
+  fs.writeFileSync(path.join(artDir, 'browser-test-report.json'), JSON.stringify(report, null, 2));
+  server.close();
+  report.startedBy = report.startedBy || null;
+  ok({ ok: report.ok, slug, version: r.version, consoleErrors: report.consoleErrors.length, startedBy: report.startedBy, screenshot: 'browser-test.png', reportFile: 'browser-test-report.json' });
+  return report.ok ? 0 : 1;
+}
+
 // ---------- list ----------
 function cmdList() {
   if (!fs.existsSync(PROJECTS)) return ok([]);
@@ -256,7 +320,7 @@ const pick = (key, fallback) => {
 const flag = (key) => rest.includes(`--${key}`);
 const slug = rest[0];
 
-function main() {
+async function main() {
   switch (cmd) {
     case 'new': return cmdNew(slug, pick('template', 'html-canvas'));
     case 'check': return cmdCheck(slug, flag('json'), pick('platform', null));
@@ -265,9 +329,10 @@ function main() {
     case 'publish': return cmdPublish(slug, { stage: flag('stage'), activate: pick('activate', null), publish: flag('publish'), version: pick('version', null) });
     case 'dev': return cmdDev(slug, pick('port', null));
     case 'screenshot': return cmdScreenshot(slug);
+    case 'test': return await cmdTest(slug, flag('browser'));
     case 'list': return cmdList();
     default:
-      fail('用法:\n  game new <slug> --template <html-canvas|phaser>\n  game check <slug> [--json]\n  game build <slug> [--version v]\n  game package <slug> [--targets web]\n  game publish <slug> [--stage|--activate v] [--publish]\n  game dev <slug> [--port]\n  game list');
+      fail('用法:\n  game new <slug> --template <html-canvas|phaser>\n  game check <slug> [--json|--platform itch]\n  game build <slug> [--version v]\n  game package <slug> [--targets web,itch,source]\n  game publish <slug> [--stage|--activate v] [--publish]\n  game test <slug> --browser\n  game dev <slug> [--port]\n  game screenshot <slug>\n  game list');
   }
 }
-main();
+main().then((code) => { if (typeof code === 'number') process.exit(code); }).catch((e) => { console.error('❌ ' + e.message); process.exit(1); });

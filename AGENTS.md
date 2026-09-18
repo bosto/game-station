@@ -84,15 +84,19 @@ curl -X POST $T/api/games/my-game/rollback -H "x-admin-token: $TOK" -H "Content-
 
 ```bash
 npm run game -- new <slug> --template <html-canvas|phaser>   # 脚手架
-npm run game -- check <slug> [--json]                        # 校验契约+入口+store 素材
+npm run game -- check <slug> [--json|--platform itch]         # 校验契约+入口+store 素材(+平台校验)
 npm run game -- build <slug>                                  # 构建到 artifacts/<slug>/<version>/web
-npm run game -- package <slug> --targets web,source           # 产出 web.zip / source.zip
+npm run game -- package <slug> --targets web,itch,source      # 产出 web.zip / itch.zip / source.zip
 npm run game -- publish <slug> [--stage] [--activate v] [--publish]  # 构建并发布到平台
+npm run game -- test <slug> --browser                          # 无头 Chrome 玩法测试(点开始/操作/截图/查错)
 npm run game -- dev <slug> --port 4000                        # 本地静态服务试玩
+npm run game -- screenshot <slug>                             # 自动生成 store 封面/截图
 npm run game -- list
 ```
 
 发布走构建产物(只含运行时文件),配合平台 `--stage/--activate` 原子发布。
+`test --browser` 通过 CDP 驱动无头 Chrome:加载 → 点击开始/重开 → 模拟指针操作 → 收集控制台错误 →
+截图取证(artifacts/<slug>/<version>/browser-test.png),输出 browser-test-report.json。
 
 ### 发布流程(纯 curl,等价于发布脚本)
 

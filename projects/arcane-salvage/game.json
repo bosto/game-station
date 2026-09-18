@@ -58,5 +58,5 @@
     }
   },
   "licenses": "store/LICENSE.md",
-  "notes": "P1 迁入 projects,资源改相对路径,设计文档在 store/design.html,store 素材已生成。itch: ready。待办:在 game-station 发布(platforms.station=not-started)、统一 Phaser 构建来源与第三方许可证核对。"
+  "notes": "P1 迁入 projects,资源改相对路径,设计文档在 store/design.html,store 素材已生成。itch: ready。待办:在 game-station 发布(platforms.station=not-started)、统一 Phaser 构建来源与第三方许可证核对。 浏览器玩法测试通过(game test --browser: 加载/开始/操作,0 控制台错误)。"
 }
