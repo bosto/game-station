@@ -10,8 +10,16 @@ const express = require('express');
 const db = require('./lib/db');
 const { loadConfig, saveConfig } = require('./lib/config');
 
-const GAMES_DIR = path.join(__dirname, 'games');
+// 运行目录支持环境变量覆盖,便于 CI/测试隔离:
+//   GAME_STATION_GAMES_DIR / GAME_STATION_DATA_DIR / GAME_STATION_CONFIG
+const GAMES_DIR = process.env.GAME_STATION_GAMES_DIR || path.join(__dirname, 'games');
+const DATA_DIR = process.env.GAME_STATION_DATA_DIR || require('./lib/db').DATA_DIR;
+// 暂存目录(原子发布用,不在公网静态服务范围)与发布快照目录(回滚用,同样私密)
+const STAGING_DIR = process.env.GAME_STATION_STAGING_DIR || path.join(DATA_DIR, 'staging');
+const RELEASES_DIR = process.env.GAME_STATION_RELEASES_DIR || path.join(DATA_DIR, 'releases');
 fs.mkdirSync(GAMES_DIR, { recursive: true });
+fs.mkdirSync(STAGING_DIR, { recursive: true });
+fs.mkdirSync(RELEASES_DIR, { recursive: true });
 let config = loadConfig();
 
 // 启动时确保有管理员令牌与登录密码(发布外网后保护后台)
@@ -114,13 +122,26 @@ function toPublicGame(g) {
   };
 }
 
-// 把相对路径安全解析到 games/<slug>/ 内,越界返回 null
-function resolveGameFile(slug, rel) {
+// 把相对路径安全解析到 base 目录内,越界返回 null
+function resolveGameFile(base, rel) {
   if (!rel || rel.includes('\0')) return null;
-  const base = path.join(GAMES_DIR, slug);
   const full = path.resolve(base, rel);
   if (full !== base && !full.startsWith(base + path.sep)) return null;
   return full;
+}
+
+// 计算一个目录内全部文件的总字节数(用于 release 记录)
+function dirBytes(dir) {
+  let total = 0;
+  (function walk(d) {
+    for (const ent of fs.readdirSync(d, { withFileTypes: true })) {
+      if (ent.name.startsWith('.')) continue;
+      const full = path.join(d, ent.name);
+      if (ent.isDirectory()) walk(full);
+      else total += fs.statSync(full).size;
+    }
+  })(dir);
+  return total;
 }
 
 function listFiles(dir) {
@@ -210,35 +231,47 @@ app.delete('/api/games/:slug', adminAuth, (req, res) => {
   const g = db.prepare('SELECT * FROM games WHERE slug = ?').get(req.params.slug);
   if (!g) return res.status(404).json({ error: '游戏不存在' });
   db.prepare('DELETE FROM stats WHERE game_id = ?').run(g.id);
+  db.prepare('DELETE FROM releases WHERE game_id = ?').run(g.id);
   db.prepare('DELETE FROM games WHERE id = ?').run(g.id);
   const dir = path.join(GAMES_DIR, g.slug);
   if (fs.existsSync(dir)) fs.rmSync(dir, { recursive: true, force: true });
+  const relDir = path.join(RELEASES_DIR, g.slug);
+  if (fs.existsSync(relDir)) fs.rmSync(relDir, { recursive: true, force: true });
+  const stagDir = path.join(STAGING_DIR, g.slug);
+  if (fs.existsSync(stagDir)) fs.rmSync(stagDir, { recursive: true, force: true });
   res.json({ ok: true, removed: g.slug });
 });
 
 // ---------- API: 游戏文件上传 / 删除 / 列表 ----------
 // 上传文件: PUT /api/games/:slug/files/<相对路径>
 // 请求体必须是原始字节(如 curl --data-binary @file),Content-Type 任意
-app.put('/api/games/:slug/files/*', express.raw({ type: () => true, limit: '25mb' }), (req, res) => {
+// 鉴权在 express.raw 之前执行,未授权请求不会触发请求体解析。
+// ?stage=1 时写入私密暂存目录(不公开),配合 POST /activate 原子发布。
+app.put('/api/games/:slug/files/*', adminAuth, express.raw({ type: () => true, limit: '25mb' }), (req, res) => {
   const g = db.prepare('SELECT id, slug FROM games WHERE slug = ?').get(req.params.slug);
   if (!g) return res.status(404).json({ error: '游戏不存在' });
   const rel = String(req.params[0] || '').replace(/^\/+/, '');
-  const target = resolveGameFile(g.slug, rel);
+  const base = req.query.stage === '1'
+    ? path.join(STAGING_DIR, g.slug)
+    : path.join(GAMES_DIR, g.slug);
+  const target = resolveGameFile(base, rel);
   if (!target) return res.status(400).json({ error: '非法路径' });
   if (!Buffer.isBuffer(req.body) || !req.body.length) {
     return res.status(400).json({ error: '请求体为空(请用 --data-binary @文件 上传原始字节)' });
   }
   fs.mkdirSync(path.dirname(target), { recursive: true });
   fs.writeFileSync(target, req.body);
-  db.prepare("UPDATE games SET updated_at = datetime('now','localtime') WHERE id = ?").run(g.id);
-  res.json({ ok: true, path: rel, bytes: req.body.length });
+  if (req.query.stage !== '1') {
+    db.prepare("UPDATE games SET updated_at = datetime('now','localtime') WHERE id = ?").run(g.id);
+  }
+  res.json({ ok: true, path: rel, bytes: req.body.length, staged: req.query.stage === '1' });
 });
 
 app.delete('/api/games/:slug/files/*', adminAuth, (req, res) => {
   const g = db.prepare('SELECT id, slug FROM games WHERE slug = ?').get(req.params.slug);
   if (!g) return res.status(404).json({ error: '游戏不存在' });
   const rel = String(req.params[0] || '').replace(/^\/+/, '');
-  const target = resolveGameFile(g.slug, rel);
+  const target = resolveGameFile(path.join(GAMES_DIR, g.slug), rel);
   if (!target) return res.status(400).json({ error: '非法路径' });
   if (!fs.existsSync(target) || !fs.statSync(target).isFile()) {
     return res.status(404).json({ error: '文件不存在' });
@@ -252,6 +285,94 @@ app.get('/api/games/:slug/files', adminAuth, (req, res) => {
   if (!g) return res.status(404).json({ error: '游戏不存在' });
   const dir = path.join(GAMES_DIR, g.slug);
   res.json({ files: fs.existsSync(dir) ? listFiles(dir) : [] });
+});
+
+// ---------- API: 版本发布(暂存 → 原子激活)与回滚(P0) ----------
+// 流程: 用 PUT ?stage=1 把文件上传到私密暂存目录(此时线上旧版不受影响)
+//      → POST /activate 把旧版快照为 release 并原子切换新内容 → 旧版可随时回滚。
+// 上传中断只影响暂存目录,线上旧版始终可玩。
+
+app.get('/api/games/:slug/releases', adminAuth, (req, res) => {
+  const g = db.prepare('SELECT id, slug FROM games WHERE slug = ?').get(req.params.slug);
+  if (!g) return res.status(404).json({ error: '游戏不存在' });
+  const rows = db.prepare(
+    'SELECT id, version, note, size_bytes, created_at FROM releases WHERE game_id = ? ORDER BY id DESC'
+  ).all(g.id);
+  res.json({ releases: rows });
+});
+
+// 把当前线上内容固化为一个 release 快照(不切换内容,用于发布前打点)
+app.post('/api/games/:slug/releases', adminAuth, (req, res) => {
+  const g = db.prepare('SELECT id, slug FROM games WHERE slug = ?').get(req.params.slug);
+  if (!g) return res.status(404).json({ error: '游戏不存在' });
+  const liveDir = path.join(GAMES_DIR, g.slug);
+  if (!fs.existsSync(liveDir)) return res.status(400).json({ error: '该游戏还没有任何文件' });
+  const version = String(req.body?.version || '').trim() || `v${Date.now()}`;
+  const note = String(req.body?.note || '').trim();
+  const r = db.prepare('INSERT INTO releases (game_id, version, note, size_bytes) VALUES (?,?,?,?)')
+    .run(g.id, version, note, dirBytes(liveDir));
+  const dest = path.join(RELEASES_DIR, g.slug, String(r.lastInsertRowid));
+  fs.mkdirSync(dest, { recursive: true });
+  fs.cpSync(liveDir, dest, { recursive: true, filter: (src) => !path.basename(src).startsWith('.') });
+  res.json({ ok: true, release: { id: r.lastInsertRowid, version, note } });
+});
+
+// 原子激活暂存内容:先把当前线上内容快照为 release,再整体切换到暂存内容
+app.post('/api/games/:slug/activate', adminAuth, (req, res) => {
+  const g = db.prepare('SELECT id, slug FROM games WHERE slug = ?').get(req.params.slug);
+  if (!g) return res.status(404).json({ error: '游戏不存在' });
+  const stagingDir = path.join(STAGING_DIR, g.slug);
+  const liveDir = path.join(GAMES_DIR, g.slug);
+  if (!fs.existsSync(path.join(stagingDir, 'index.html'))) {
+    return res.status(400).json({ error: '暂存内容缺少 index.html,不能激活' });
+  }
+  const version = String(req.body?.version || '').trim() || `v${Date.now()}`;
+  const note = String(req.body?.note || '').trim();
+
+  // 1) 把旧版快照为 release(旧内容保留,供回滚)
+  let previousReleaseId = null;
+  if (fs.existsSync(liveDir)) {
+    const r = db.prepare('INSERT INTO releases (game_id, version, note, size_bytes) VALUES (?,?,?,?)')
+      .run(g.id, version, note, dirBytes(liveDir));
+    previousReleaseId = r.lastInsertRowid;
+    const dest = path.join(RELEASES_DIR, g.slug, String(previousReleaseId));
+    fs.mkdirSync(dest, { recursive: true });
+    fs.cpSync(liveDir, dest, { recursive: true, filter: (src) => !path.basename(src).startsWith('.') });
+  }
+
+  // 2) 原子切换:删除旧 live → 把 staging 整体改名为 live
+  try {
+    if (fs.existsSync(liveDir)) fs.rmSync(liveDir, { recursive: true, force: true });
+    fs.mkdirSync(path.dirname(liveDir), { recursive: true });
+    fs.renameSync(stagingDir, liveDir);
+  } catch (e) {
+    // 切换失败:尝试从快照恢复旧内容
+    if (previousReleaseId) {
+      const src = path.join(RELEASES_DIR, g.slug, String(previousReleaseId));
+      if (fs.existsSync(src)) fs.cpSync(src, liveDir, { recursive: true });
+    }
+    return res.status(500).json({ error: '激活失败,已尝试恢复旧版本', detail: String(e.message) });
+  }
+  db.prepare("UPDATE games SET updated_at = datetime('now','localtime') WHERE id = ?").run(g.id);
+  res.json({ ok: true, version, releaseId: previousReleaseId, staged: false });
+});
+
+// 回滚到某个 release 快照
+app.post('/api/games/:slug/rollback', adminAuth, (req, res) => {
+  const g = db.prepare('SELECT id, slug FROM games WHERE slug = ?').get(req.params.slug);
+  if (!g) return res.status(404).json({ error: '游戏不存在' });
+  const releaseId = Number(req.body?.releaseId);
+  if (!releaseId) return res.status(400).json({ error: '缺少 releaseId' });
+  const rel = db.prepare('SELECT * FROM releases WHERE id = ? AND game_id = ?').get(releaseId, g.id);
+  if (!rel) return res.status(404).json({ error: 'release 不存在' });
+  const src = path.join(RELEASES_DIR, g.slug, String(rel.id));
+  if (!fs.existsSync(src)) return res.status(404).json({ error: 'release 文件缺失' });
+  const liveDir = path.join(GAMES_DIR, g.slug);
+  if (fs.existsSync(liveDir)) fs.rmSync(liveDir, { recursive: true, force: true });
+  fs.mkdirSync(path.dirname(liveDir), { recursive: true });
+  fs.cpSync(src, liveDir, { recursive: true });
+  db.prepare("UPDATE games SET updated_at = datetime('now','localtime') WHERE id = ?").run(g.id);
+  res.json({ ok: true, restored: rel.version, releaseId: rel.id });
 });
 
 // ---------- API: 试玩统计(公开) ----------
@@ -306,7 +427,8 @@ app.listen(config.port, host, () => {
   console.log(`   公开主页: http://${host}:${config.port}/`);
   console.log(`   管理后台: http://${host}:${config.port}/admin`);
   console.log(`   Agent 发布示例(单文件游戏):`);
-  console.log(`     GAME_STATION_TOKEN=${config.adminToken} node scripts/publish.mjs /path/to/game-dir --title "游戏名" --publish`);
-  console.log(`   🔑 后台登录: ${config.adminUser} / ${config.adminPass}`);
+  console.log('     凭据见 config.json(adminToken / adminPass),建议用环境变量 GAME_STATION_TOKEN 传入:');
+  console.log(`     GAME_STATION_TOKEN=<config.json 的 adminToken> node scripts/publish.mjs /path/to/game-dir --title "游戏名" --publish`);
+  console.log('   🔑 后台登录账号见 config.json(adminUser / adminPass)。');
   console.log('==============================================');
 });

@@ -7,7 +7,9 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
-    "publish": "node scripts/publish.mjs"
+    "publish": "node scripts/publish.mjs",
+    "backup": "node scripts/backup.mjs",
+    "smoke": "bash scripts/ci-smoke.sh"
   },
   "engines": {
     "node": ">=18"

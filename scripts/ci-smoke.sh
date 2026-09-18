@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # CI 冒烟测试(CI / 部署工作流共用):
-#   在临时端口上启动一个独立实例 → 跑完整发布流程冒烟测试 → 清理
-#   绝不碰线上实例(默认 3211,与线上 3210 隔离)。
+#   在临时端口上、用完全隔离的临时 data/games/config 目录启动一个独立实例
+#   → 跑完整发布流程冒烟测试 → 清理。绝不碰线上实例(默认 3211,与线上 3210 隔离),
+#   也绝不修改当前工作区的 config.json / data / games。
 #
 # 用法: bash scripts/ci-smoke.sh [--port 3211] [--token ci-token]
 set -euo pipefail
@@ -27,16 +28,30 @@ if [ -n "$OLD_PIDS" ]; then
   sleep 1
 fi
 
-# 2) 生成临时配置(config.json 已被 gitignore,仅存在于本次工作区)
-cp config.example.json config.json
-node -e "const fs=require('fs');const c=JSON.parse(fs.readFileSync('config.json'));c.port=${PORT};c.adminToken='${TOKEN}';c.adminPass='ci-pass-123';fs.writeFileSync('config.json',JSON.stringify(c))"
+# 2) 生成隔离运行环境:临时目录里的 config/data/games,不覆盖工作区任何文件
+CI_DIR="$(mktemp -d "${TMPDIR:-/tmp}/gs-ci.XXXXXX")"
+export GAME_STATION_CONFIG="${CI_DIR}/config.json"
+export GAME_STATION_DATA_DIR="${CI_DIR}/data"
+export GAME_STATION_GAMES_DIR="${CI_DIR}/games"
+export GAME_STATION_STAGING_DIR="${CI_DIR}/staging"
+export GAME_STATION_RELEASES_DIR="${CI_DIR}/releases"
+cat > "${CI_DIR}/config.json" <<EOF
+{
+  "host": "127.0.0.1",
+  "port": ${PORT},
+  "publicHost": false,
+  "adminUser": "admin",
+  "adminPass": "ci-pass-123",
+  "adminToken": "${TOKEN}"
+}
+EOF
 
-# 3) 启动独立实例
-node server.js > ci-smoke.log 2>&1 &
+# 3) 启动独立实例(写入隔离目录,日志也在隔离目录)
+node server.js > "${CI_DIR}/ci-smoke.log" 2>&1 &
 SERVER_PID=$!
 cleanup() {
   kill "$SERVER_PID" 2>/dev/null || true
-  rm -f config.json ci-smoke.log
+  rm -rf "$CI_DIR"
 }
 trap cleanup EXIT
 

@@ -39,10 +39,40 @@ game-station 是一个**游戏发布平台**:Agent 负责写游戏代码,平台�
 | GET | `/api/games` | 全部游戏(管理视角) | ✅ |
 | GET | `/api/games?public=1` | 公开可玩游戏列表 | ❌ |
 | GET | `/api/games/:slug` | 详情 + 文件列表 + 近 14 天试玩 | ✅ |
-| PUT | `/api/games/:slug/files/*path` | **上传文件(原始字节)** | ✅ |
+| PUT | `/api/games/:slug/files/*path` | **上传文件(原始字节);`?stage=1` 写入暂存目录** | ✅ |
 | DELETE | `/api/games/:slug/files/*path` | 删除文件 | ✅ |
 | GET | `/api/games/:slug/files` | 文件列表 | ✅ |
+| POST | `/api/games/:slug/activate` | **原子激活暂存内容为新版本(旧版自动快照)** | ✅ |
+| POST | `/api/games/:slug/rollback` | **回滚到某个 release 快照** | ✅ |
+| POST | `/api/games/:slug/releases` | **把当前线上内容固化为 release 快照** | ✅ |
+| GET | `/api/games/:slug/releases` | release 列表 | ✅ |
 | POST | `/api/games/:slug/play` | 试玩计数 | ❌ |
+
+### 原子发布与回滚(推荐)
+
+大改或发布多文件版本时,先用 `--stage` 上传到私密暂存目录(**期间线上旧版完全不受影响**),
+再 `--activate` 一次性切换。上传中断只影响暂存,线上始终可玩;激活后旧版自动保留为 release,可随时回滚:
+
+```bash
+TOK=<令牌>
+
+# 1) 暂存新版本(不动线上)
+GAME_STATION_TOKEN=$TOK node game-station/scripts/publish.mjs ./games/my-game --title "我的游戏" --stage
+
+# 2) 激活为线上新版本(旧版自动快照)
+GAME_STATION_TOKEN=$TOK node game-station/scripts/publish.mjs --slug my-game --activate v2 --publish
+
+# 3) 需要时回滚到某个 releaseId
+curl -X POST $T/api/games/my-game/rollback -H "x-admin-token: $TOK" -H "Content-Type: application/json" \
+  -d '{"releaseId": 1}'
+```
+
+发布前可先 `POST /api/games/:slug/releases` 给"即将上线"的当前版本打点。
+
+### 备份
+
+`node scripts/backup.mjs` 用 SQLite 一致性备份 API 生成 `game-station-backups/<时间戳>/`
+(数据库 + 游戏文件 + 配置),不直接复制正在写入的 db。
 
 ### 发布流程(纯 curl,等价于发布脚本)
 
@@ -82,7 +112,8 @@ curl -s "$T/api/games?public=1" | python3 -m json.tool
 
 - **404 / 403**:游戏还没创建,或 `playable` 还是 0。先 POST 创建,再 PATCH `{"playable":true}`。
 - **上传 400「请求体为空」**:带了 `Content-Type: application/json` 导致字节被吞,改用 octet-stream。
-- **想大改一个已发布游戏**:直接覆盖上传 `index.html`(原文件不备份,请自行在本地保留版本),刷新即可生效。
+- **想大改一个已发布游戏**:推荐用上面的 `--stage` + `--activate` 原子发布(旧版自动快照,可回滚);
+  直接覆盖上传 `index.html` 仍可用,但无版本快照。
 - **想换 slug**:slug 创建后不可改,重新创建一个游戏并上传即可。
 - **统计**:每次打开试玩页计一次试玩;后台可看 14 天曲线。
 

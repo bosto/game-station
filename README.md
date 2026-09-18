@@ -97,7 +97,8 @@ cloudflared --config /Users/yes/.cloudflared/config.yml tunnel run  # launchd �
 部署链路:`git push` → 冒烟测试(临时端口 3211,不打扰线上 3210)→ `scripts/deploy.sh` 把代码 `rsync` 到运行目录并 `npm ci` → `launchctl` 重启 `com.yes.game-station` → 探测 `https://game.bosto.tech/api/health` 恢复 200。
 
 > - 冒烟测试由 `scripts/ci-smoke.sh` 统一完成(两个工作流共用);启动前会自动清理端口 3211 的残留进程,
->   避免上次被取消的 run 留下旧代码服务导致假绿。
+>   避免上次被取消的 run 留下旧代码服务导致假绿;测试使用完全隔离的临时 data/games/config 目录,
+>   绝不修改工作区或线上数据。
 > - 部署任务串行排队(`concurrency`),不会中途打断正在执行的部署。
 > - `deploy.sh` 同步时保留 `games/`(本地发布但未提交 git 的游戏)与 `config.json`/`data/`(密钥与数据库)。
 > - ⚠️ 运行目录就是 git 仓库本身:部署会用已提交代码覆盖本地改动,未提交的修改会被冲掉,
@@ -106,9 +107,17 @@ cloudflared --config /Users/yes/.cloudflared/config.yml tunnel run  # launchd �
 ## 安全性说明
 
 - 公开页面(主页/试玩/游戏文件/公开 API/试玩计数):任何人可访问
-- 管理后台 `/admin` 与所有管理 API(含发布接口):需登录(用户名+密码)或携带令牌
+- 管理后台 `/admin` 与所有管理 API(含发布与文件上传):需登录(用户名+密码)或携带令牌;
+  文件上传接口同样鉴权,未授权/错误令牌上传一律 401 且不写入任何文件
 - 未公开游戏(`playable=0`)的文件无法被玩家访问,仅管理员可预览(`?admin=1&token=...`)
 - 文件上传有路径越界防护,只能写入 `games/<slug>/` 内
+- 启动日志不再输出管理员密码/令牌,凭据只在 `config.json`
+- 原子发布:先上传到私密暂存目录(不公开、不影响线上),`POST /activate` 一次性切换并自动
+  快照旧版为 release,可 `POST /rollback` 回滚;上传中断不影响线上旧版
+- 备份:`npm run backup`(`scripts/backup.mjs`)用 SQLite 一致性备份 API 生成
+  `game-station-backups/<时间戳>/`,不会直接复制正在写入的 db
+
+> 以上仅本地代码结论;部署到公网后仍建议启用 HTTPS(Cloudflare Tunnel 已提供)并定期轮换令牌。
 
 ## 从旧版(v0.1 流水线版)升级说明
 

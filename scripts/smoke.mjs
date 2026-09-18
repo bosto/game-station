@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-// 发布流程冒烟测试:验证 创建→上传→公开→访问→计数→删除 全链路
+// 发布流程冒烟测试:验证 创建→上传→公开→访问→计数→删除 全链路,
+// 以及 P0 新增的:未授权/错误令牌上传被拒、暂存原子发布、回滚。
 // 供 CI(GitHub Actions)与本地开发使用;测试游戏会自动清理,不污染线上数据。
 //
 // 用法:
@@ -21,11 +22,19 @@ if (!token) {
 
 const H = { 'Content-Type': 'application/json', 'x-admin-token': token };
 const slug = `ci-smoke-${Date.now().toString(36)}`;
-const MARKER = `smoke-${slug}`;
 let failures = 0;
 
 async function call(path, opts = {}) {
   const res = await fetch(base + path, { ...opts, headers: { ...H, ...(opts.headers || {}) } });
+  const text = await res.text();
+  let data = null;
+  try { data = JSON.parse(text); } catch (e) {}
+  return { status: res.status, data, text };
+}
+
+// 自定义请求头调用(用于无令牌 / 错误令牌的鉴权测试)
+async function rawCall(path, opts = {}, headers = {}) {
+  const res = await fetch(base + path, { ...opts, headers });
   const text = await res.text();
   let data = null;
   try { data = JSON.parse(text); } catch (e) {}
@@ -51,10 +60,11 @@ async function main() {
   });
   check('创建游戏', r.status === 200 && r.data?.ok && r.data.slug === slug, r.text.slice(0, 120));
 
-  // 2. 上传 index.html + 子目录资源
-  const html = `<!DOCTYPE html><html><head><title>${MARKER}</title></head><body><h1>${MARKER}</h1></body></html>`;
+  // 2. 上传 v1:index.html + 子目录资源
+  const v1 = `<h1>${slug}-V1</h1>`;
+  const v2 = `<h1>${slug}-V2</h1>`;
   r = await call(`/api/games/${slug}/files/index.html`, {
-    method: 'PUT', headers: { 'Content-Type': 'text/html' }, body: html,
+    method: 'PUT', headers: { 'Content-Type': 'text/html' }, body: v1,
   });
   check('上传 index.html', r.status === 200 && r.data?.ok && r.data.bytes > 0, r.text.slice(0, 120));
 
@@ -68,35 +78,86 @@ async function main() {
   const paths = (r.data?.files || []).map((f) => f.path);
   check('文件列表', r.status === 200 && paths.includes('index.html') && paths.includes('assets/note.txt'), JSON.stringify(paths));
 
-  // 4. 公开试玩
+  // 3.5 先公开试玩,使 /g/<slug>/ 本体可被访问(供后续暂存/激活/回滚断言)
   r = await call(`/api/games/${slug}`, { method: 'PATCH', body: JSON.stringify({ playable: true }) });
-  check('公开试玩', r.status === 200 && r.data?.ok, r.text.slice(0, 120));
+  check('公开试玩(前置)', r.status === 200 && r.data?.ok, r.text.slice(0, 120));
 
-  // 5. 公开列表可见
+  // 4. 鉴权防护:无令牌 / 错误令牌上传必须被拒,且不写入文件
+  r = await rawCall(`/api/games/${slug}/files/unauth.txt`, {
+    method: 'PUT', headers: { 'Content-Type': 'text/plain' }, body: 'x',
+  }, {});
+  check('未授权上传被拒(401)', r.status === 401, `status=${r.status}`);
+  r = await rawCall(`/api/games/${slug}/files/unauth2.txt`, {
+    method: 'PUT', headers: { 'Content-Type': 'text/plain' }, body: 'x',
+  }, { 'x-admin-token': 'wrong-token' });
+  check('错误令牌上传被拒(401)', r.status === 401, `status=${r.status}`);
+  r = await call(`/api/games/${slug}/files`);
+  const paths2 = (r.data?.files || []).map((f) => f.path);
+  check('未授权上传未写入文件', r.status === 200 && !paths2.includes('unauth.txt') && !paths2.includes('unauth2.txt'), JSON.stringify(paths2));
+
+  // 5. 暂存原子发布:stage 上传新版本,不影响线上旧版
+  r = await call(`/api/games/${slug}/files/index.html?stage=1`, {
+    method: 'PUT', headers: { 'Content-Type': 'text/html' }, body: v2,
+  });
+  check('暂存上传新版本', r.status === 200 && r.data?.staged === true, r.text.slice(0, 120));
+  r = await call(`/api/games/${slug}/files/assets/new.txt?stage=1`, {
+    method: 'PUT', headers: { 'Content-Type': 'text/plain' }, body: 'new',
+  });
+  check('暂存上传新资源', r.status === 200 && r.data?.staged === true, r.text.slice(0, 120));
+  r = await call(`/g/${slug}/index.html`);
+  check('暂存期间线上仍是旧版', r.status === 200 && r.text.includes('V1'), `status=${r.status}`);
+  // 暂存内容不应被公网访问
+  r = await call(`/g/${slug}/index.html?stage=1`);
+  check('暂存内容不公开', r.status === 200 && !r.text.includes('V2'), `status=${r.status}`);
+
+  // 6. 激活 → 线上切到新版本,并生成 release 快照
+  r = await call(`/api/games/${slug}/activate`, {
+    method: 'POST', body: JSON.stringify({ version: 'v2', note: 'ci atomic publish' }),
+  });
+  check('激活暂存发布', r.status === 200 && r.data?.ok && r.data.releaseId, r.text.slice(0, 120));
+  const releaseId = r.data?.releaseId;
+  r = await call(`/g/${slug}/index.html`);
+  check('激活后线上是新版', r.status === 200 && r.text.includes('V2'), `status=${r.status}`);
+
+  // 7. 回滚到 v1 release
+  r = await call(`/api/games/${slug}/releases`);
+  check('release 列表', r.status === 200 && Array.isArray(r.data?.releases) && r.data.releases.length >= 1, r.text.slice(0, 120));
+  if (releaseId) {
+    r = await call(`/api/games/${slug}/rollback`, {
+      method: 'POST', body: JSON.stringify({ releaseId }),
+    });
+    check('回滚到旧版本', r.status === 200 && r.data?.ok, r.text.slice(0, 120));
+    r = await call(`/g/${slug}/index.html`);
+    check('回滚后线上是旧版', r.status === 200 && r.text.includes('V1'), `status=${r.status}`);
+  } else {
+    check('回滚到旧版本', false, '无 releaseId');
+  }
+
+  // 8. 公开列表可见(playable 已在前面设置)
   r = await call('/api/games?public=1');
   check('公开列表可见', r.status === 200 && (r.data?.games || []).some((g) => g.slug === slug));
 
-  // 6. 游戏本体可访问
+  // 9. 游戏本体可访问
   r = await call(`/g/${slug}/index.html`);
-  check('游戏本体 200 且内容正确', r.status === 200 && r.text.includes(MARKER), `status=${r.status}`);
+  check('游戏本体 200 且内容正确', r.status === 200 && (r.text.includes('V1') || r.text.includes('V2')), `status=${r.status}`);
 
-  // 7. 试玩计数
+  // 10. 试玩计数
   r = await call(`/api/games/${slug}/play`, { method: 'POST' });
   check('试玩计数', r.status === 200 && r.data?.total >= 1, r.text.slice(0, 120));
 
-  // 8. 详情(文件 + 统计)
+  // 11. 详情(文件 + 统计)
   r = await call(`/api/games/${slug}`);
-  check('详情接口', r.status === 200 && r.data?.game?.plays >= 1 && r.data?.files?.length === 2, r.text.slice(0, 120));
+  check('详情接口', r.status === 200 && r.data?.game?.plays >= 1 && r.data?.files?.length >= 2, r.text.slice(0, 120));
 
-  // 9. 路径越界防护(Express 可能在路由层直接规范化拒绝(404),也可能由处理器拒绝(400),两者都安全)
+  // 12. 路径越界防护(Express 可能在路由层直接规范化拒绝(404),也可能由处理器拒绝(400),两者都安全)
   r = await call(`/api/games/${slug}/files/%2e%2e/evil.txt`, { method: 'PUT', headers: { 'Content-Type': 'text/plain' }, body: 'x' });
   check('路径越界被拒', r.status === 400 || r.status === 404, `status=${r.status}`);
 
-  // 10. 删除游戏(清理)
+  // 13. 删除游戏(清理)
   r = await call(`/api/games/${slug}`, { method: 'DELETE' });
   check('删除游戏', r.status === 200 && r.data?.ok, r.text.slice(0, 120));
 
-  // 11. 删除后公开列表不可见
+  // 14. 删除后公开列表不可见
   r = await call('/api/games?public=1');
   check('清理完成', !(r.data?.games || []).some((g) => g.slug === slug));
 
