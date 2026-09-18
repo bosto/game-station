@@ -1,0 +1,8 @@
+{
+  "name": "platform-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "description": "平台能力桥接:ready/gameplay/pause/save/load/广告。local 实装,itch/crazygames/poki 待适配。",
+  "main": "index.js",
+  "files": ["index.js"]
+}

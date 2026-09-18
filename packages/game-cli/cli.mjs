@@ -17,6 +17,7 @@ import { spawnSync } from 'node:child_process';
 import http from 'node:http';
 import { validateGameManifest } from './lib/validate.mjs';
 import { buildProject } from './lib/build.mjs';
+import { checkItch, checkPlatformStatus } from './lib/platforms.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.join(__dirname, '..', '..');
@@ -60,7 +61,7 @@ function cmdNew(slug, template) {
 }
 
 // ---------- check ----------
-function cmdCheck(slug, asJson) {
+function cmdCheck(slug, asJson, platform) {
   const { d, m } = readManifest(slug);
   const v = validateGameManifest(m);
   const entryRel = m.entry || 'index.html';
@@ -72,11 +73,28 @@ function cmdCheck(slug, asJson) {
   for (const ref of storeRefs) {
     if (!fs.existsSync(path.join(d, ref))) v.warnings.push(`store 素材缺失(待办): ${ref}`);
   }
-  if (asJson) return ok({ slug, ok: v.ok && !entryMissing, errors: v.errors, warnings: v.warnings });
+  // 平台状态跟踪
+  v.warnings.push(...checkPlatformStatus(m));
+  // 平台专项校验(需构建产物)
+  let platResult = null;
+  if (platform) {
+    try {
+      const r = buildProject({ projectDir: d, outRoot: ARTIFACTS, version: m.version });
+      if (platform === 'itch') platResult = checkItch({ manifest: m, webDir: r.webDir });
+      else v.warnings.push(`未知平台校验: ${platform}(已忽略)`);
+    } catch (e) {
+      platResult = { platform, ok: false, errors: [e.message], warnings: [] };
+    }
+    if (platResult) {
+      platResult.errors.forEach((e) => v.errors.push(e));
+      platResult.warnings.forEach((w) => v.warnings.push(w));
+    }
+  }
+  if (asJson) return ok({ slug, platform: platform || null, ok: v.ok && !entryMissing, errors: v.errors, warnings: v.warnings });
   v.errors.forEach((e) => console.log('  ✗ ' + e));
   v.warnings.forEach((w) => console.log('  ⚠ ' + w));
   if (v.errors.length) fail(`❌ check 失败(${v.errors.length} 个错误)`);
-  console.log(`✅ ${slug} 检查通过(entry=${entryRel}, ${v.warnings.length} 个待办提醒)`);
+  console.log(`✅ ${slug} 检查通过(entry=${entryRel}${platform ? `, platform=${platform}` : ''}, ${v.warnings.length} 个待办提醒)`);
   return 0;
 }
 
@@ -97,12 +115,18 @@ function cmdPackage(slug, targets, version) {
   const artDir = path.join(ARTIFACTS, slug, r.version);
   const made = [];
   for (const t of targetsArr) {
-    if (t === 'web') {
-      const zipPath = path.join(artDir, 'web.zip');
+    if (t === 'web' || t === 'itch') {
+      const zipPath = path.join(artDir, t === 'itch' ? 'itch.zip' : 'web.zip');
       // 在 web 目录内打包,保证 ZIP 根目录直接包含 index.html(符合网页平台要求)
       const res = spawnSync('zip', ['-r', '-q', zipPath, '.'], { cwd: r.webDir });
       if (res.status !== 0) fail(`❌ 打包失败: ${res.stderr?.toString() || 'zip 错误'}`);
-      made.push('web.zip');
+      if (t === 'itch') {
+        // itch 专项校验(入口/相对路径/绝对路径/外部依赖/规模)
+        const p = checkItch({ manifest: m, webDir: r.webDir });
+        if (!p.ok) fail(`❌ itch 校验失败:\n  - ${p.errors.join('\n  - ')}`);
+        console.log(`  ✓ itch 校验通过(${p.warnings.join('; ')})`);
+      }
+      made.push(t === 'itch' ? 'itch.zip' : 'web.zip');
     } else if (t === 'source') {
       // 源码包:项目目录(不含 .git / artifacts),默认私有
       const zipPath = path.join(artDir, 'source.zip');
@@ -185,7 +209,7 @@ const slug = rest[0];
 function main() {
   switch (cmd) {
     case 'new': return cmdNew(slug, pick('template', 'html-canvas'));
-    case 'check': return cmdCheck(slug, flag('json'));
+    case 'check': return cmdCheck(slug, flag('json'), pick('platform', null));
     case 'build': return cmdBuild(slug, pick('version', null));
     case 'package': return cmdPackage(slug, pick('targets', 'web'), pick('version', null));
     case 'publish': return cmdPublish(slug, { stage: flag('stage'), activate: pick('activate', null), publish: flag('publish'), version: pick('version', null) });

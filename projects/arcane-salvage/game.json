@@ -4,29 +4,58 @@
   "version": "1.0.0",
   "description": "Phaser 3 卡牌/Roguelike:在坍塌之门中拾荒,管理生命/零件/卡组与遗物,本地自动存档。",
   "genre": "卡牌/Roguelike",
-  "languages": ["zh"],
+  "languages": [
+    "zh"
+  ],
   "engine": "phaser",
   "entry": "index.html",
-  "input": ["mouse", "touch", "keyboard"],
-  "recommendedSize": { "width": 1180, "height": 720 },
+  "input": [
+    "mouse",
+    "touch",
+    "keyboard"
+  ],
+  "recommendedSize": {
+    "width": 1180,
+    "height": 720
+  },
   "orientation": "landscape",
   "mobileSupported": true,
   "externalNetwork": [],
   "saveVersion": 1,
   "resources": [
-    { "path": "index.html", "type": "runtime" },
-    { "path": "app.js", "type": "runtime" },
-    { "path": "vendor/phaser.min.js", "type": "runtime" }
+    {
+      "path": "index.html",
+      "type": "runtime"
+    },
+    {
+      "path": "app.js",
+      "type": "runtime"
+    },
+    {
+      "path": "vendor/phaser.min.js",
+      "type": "runtime"
+    }
   ],
   "store": {
     "cover": "store/cover.png",
-    "screenshots": ["store/screenshot-1.png"],
+    "screenshots": [
+      "store/screenshot-1.png"
+    ],
     "video": "",
     "instructions": "store/instructions.md",
     "changelog": "store/changelog.md"
   },
   "platforms": {
-    "station": { "status": "not-started", "projectId": "", "note": "原为独立 Pages 站点(arcane-salvage.bosto.chat);P1 迁入 projects 统一管理" }
+    "station": {
+      "status": "not-started",
+      "projectId": "",
+      "note": "原为独立 Pages 站点(arcane-salvage.bosto.chat);P1 迁入 projects 统一管理"
+    },
+    "itch": {
+      "status": "ready",
+      "projectId": "",
+      "note": "web.zip 已通过 itch 校验(index.html 在根/相对路径/无外部依赖);截图与操作说明待补,尚未提交审核"
+    }
   },
   "licenses": "store/LICENSE.md",
   "notes": "P1 已修正 /app.js、/vendor/phaser.min.js 为相对路径;Phaser 3.90 本地 vendor;设计文档归档于 store/design.html。待办:在 game-station 发布(platforms.station 尚未 live)、封面/截图/操作说明真实文件、统一 Phaser 构建来源与第三方许可证核对。"
