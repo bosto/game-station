@@ -109,6 +109,16 @@ async function main() {
   // 暂存内容不应被公网访问
   r = await call(`/g/${slug}/index.html?stage=1`);
   check('暂存内容不公开', r.status === 200 && !r.text.includes('V2'), `status=${r.status}`);
+  // 草稿预览会话:可预览暂存的新版,不影响线上旧版
+  r = await call(`/api/games/${slug}/preview-session`, { method: 'POST' });
+  check('创建草稿预览会话', r.status === 200 && r.data?.ok && /^\/preview\/[a-f0-9]{32}\//.test(r.data?.previewUrl || ''), r.text.slice(0, 120));
+  const draftUrl = r.data?.previewUrl;
+  if (draftUrl) {
+    r = await rawCall(`${draftUrl}index.html`, {}, {});
+    check('草稿预览可见暂存新版', r.status === 200 && r.text.includes('V2'), `status=${r.status}`);
+    r = await rawCall(`${draftUrl}assets/new.txt`, {}, {});
+    check('草稿预览子资源可访问(修复 403)', r.status === 200 && r.text === 'new', `status=${r.status}`);
+  }
 
   // 6. 激活 → 线上切到新版本,并生成 release 快照
   r = await call(`/api/games/${slug}/activate`, {
@@ -131,6 +141,27 @@ async function main() {
     check('回滚后线上是旧版', r.status === 200 && r.text.includes('V1'), `status=${r.status}`);
   } else {
     check('回滚到旧版本', false, '无 releaseId');
+  }
+
+  // 7.5 P2: 版本预览会话(短时 token,子资源可访问)与交付物下载
+  if (releaseId) {
+    r = await call(`/api/games/${slug}/releases/${releaseId}/preview-session`, { method: 'POST' });
+    check('创建预览会话', r.status === 200 && r.data?.ok && /^\/preview\/[a-f0-9]{32}\//.test(r.data?.previewUrl || ''), r.text.slice(0, 120));
+    const previewUrl = r.data?.previewUrl;
+    if (previewUrl) {
+      r = await rawCall(`${previewUrl}index.html`, {}, {});
+      check('预览会话可访问旧版内容', r.status === 200 && r.text.includes('V1'), `status=${r.status}`);
+    }
+    // 无效 token 应 410
+    r = await rawCall('/preview/00000000000000000000000000000000/index.html', {}, {});
+    check('无效预览 token 被拒(410)', r.status === 410, `status=${r.status}`);
+    // 交付物:冒烟未构建,期望 404(而非 500);releases 列表应含 hasSnapshot
+    r = await call(`/api/games/${slug}/releases/${releaseId}/artifacts/web.zip`);
+    check('未构建交付物返回 404', r.status === 404, `status=${r.status}`);
+    r = await call(`/api/games/${slug}/releases`);
+    const rels = r.data?.releases || [];
+    check('releases 记录新版本行', r.status === 200 && rels[0]?.version === 'v2', r.text.slice(0, 120));
+    check('releases 含可回滚快照', rels.some((x) => x.hasSnapshot === true), r.text.slice(0, 120));
   }
 
   // 8. 公开列表可见(playable 已在前面设置)

@@ -17,6 +17,8 @@ const DATA_DIR = process.env.GAME_STATION_DATA_DIR || require('./lib/db').DATA_D
 // 暂存目录(原子发布用,不在公网静态服务范围)与发布快照目录(回滚用,同样私密)
 const STAGING_DIR = process.env.GAME_STATION_STAGING_DIR || path.join(DATA_DIR, 'staging');
 const RELEASES_DIR = process.env.GAME_STATION_RELEASES_DIR || path.join(DATA_DIR, 'releases');
+// 交付物目录(由 game-cli 构建,含 web.zip/source.zip/校验报告)
+const ARTIFACTS_DIR = process.env.GAME_STATION_ARTIFACTS_DIR || path.join(__dirname, 'artifacts');
 fs.mkdirSync(GAMES_DIR, { recursive: true });
 fs.mkdirSync(STAGING_DIR, { recursive: true });
 fs.mkdirSync(RELEASES_DIR, { recursive: true });
@@ -297,7 +299,17 @@ app.get('/api/games/:slug/releases', adminAuth, (req, res) => {
   if (!g) return res.status(404).json({ error: '游戏不存在' });
   const rows = db.prepare(
     'SELECT id, version, note, size_bytes, created_at FROM releases WHERE game_id = ? ORDER BY id DESC'
-  ).all(g.id);
+  ).all(g.id).map((r) => {
+    // 交付物信息:game-cli 构建产物是否存在
+    const artDir = path.join(ARTIFACTS_DIR, g.slug, r.version);
+    const artifacts = [];
+    for (const f of ARTIFACT_ALLOW) {
+      const p = path.join(artDir, f);
+      if (fs.existsSync(p)) artifacts.push({ file: f, bytes: fs.statSync(p).size });
+    }
+    const snapDir = path.join(RELEASES_DIR, g.slug, String(r.id));
+    return { ...r, artifacts, hasSnapshot: fs.existsSync(path.join(snapDir, 'index.html')) };
+  });
   res.json({ releases: rows });
 });
 
@@ -329,9 +341,12 @@ app.post('/api/games/:slug/activate', adminAuth, (req, res) => {
   const version = String(req.body?.version || '').trim() || `v${Date.now()}`;
   const note = String(req.body?.note || '').trim();
 
-  // 1) 把旧版快照为 release(旧内容保留,供回滚)
+  // 1) 旧版有真实内容(非空)时快照为 release,供回滚
+  //    注意 POST /api/games 会预建空目录,空目录不算旧版。
   let previousReleaseId = null;
-  if (fs.existsSync(liveDir)) {
+  const liveHasContent = fs.existsSync(liveDir)
+    && fs.readdirSync(liveDir, { withFileTypes: true }).some((e) => e.isDirectory() || !e.name.startsWith('.'));
+  if (liveHasContent) {
     const r = db.prepare('INSERT INTO releases (game_id, version, note, size_bytes) VALUES (?,?,?,?)')
       .run(g.id, version, note, dirBytes(liveDir));
     previousReleaseId = r.lastInsertRowid;
@@ -339,6 +354,7 @@ app.post('/api/games/:slug/activate', adminAuth, (req, res) => {
     fs.mkdirSync(dest, { recursive: true });
     fs.cpSync(liveDir, dest, { recursive: true, filter: (src) => !path.basename(src).startsWith('.') });
   }
+  const newSize = dirBytes(stagingDir);
 
   // 2) 原子切换:删除旧 live → 把 staging 整体改名为 live
   try {
@@ -353,8 +369,12 @@ app.post('/api/games/:slug/activate', adminAuth, (req, res) => {
     }
     return res.status(500).json({ error: '激活失败,已尝试恢复旧版本', detail: String(e.message) });
   }
+
+  // 3) 总是为新版本记录 release 行(版本历史 + 交付物按版本追溯;内容即 live,无需快照)
+  const nv = db.prepare('INSERT INTO releases (game_id, version, note, size_bytes) VALUES (?,?,?,?)')
+    .run(g.id, version, note ? `activated: ${note}` : 'activated', newSize);
   db.prepare("UPDATE games SET updated_at = datetime('now','localtime') WHERE id = ?").run(g.id);
-  res.json({ ok: true, version, releaseId: previousReleaseId, staged: false });
+  res.json({ ok: true, version, releaseId: previousReleaseId, currentReleaseId: nv.lastInsertRowid, staged: false });
 });
 
 // 回滚到某个 release 快照
@@ -373,6 +393,71 @@ app.post('/api/games/:slug/rollback', adminAuth, (req, res) => {
   fs.cpSync(src, liveDir, { recursive: true });
   db.prepare("UPDATE games SET updated_at = datetime('now','localtime') WHERE id = ?").run(g.id);
   res.json({ ok: true, restored: rel.version, releaseId: rel.id });
+});
+
+// ---------- P2: 版本/草稿预览(短时会话,修复多文件预览子资源 403)与交付物下载 ----------
+// 预览会话:管理员创建 → 得到 /preview/<token>/ 公网路径(无需再带 ?token=),
+// 子资源请求自然继承路径中的会话 token,多文件游戏也能完整预览。会话短时过期。
+// 两种来源:release 快照(历史版本) 或 当前暂存目录(草稿预览,未上线)。
+
+const PREVIEW_TTL_MS = 30 * 60 * 1000; // 30 分钟
+const previewSessions = new Map(); // token -> { sourceDir, kind, expiresAt }
+function issuePreviewSession(sourceDir, kind, label) {
+  const token = crypto.randomBytes(16).toString('hex');
+  previewSessions.set(token, { sourceDir, kind, label, expiresAt: Date.now() + PREVIEW_TTL_MS });
+  return token;
+}
+setInterval(() => {
+  const now = Date.now();
+  for (const [k, v] of previewSessions) if (v.expiresAt < now) previewSessions.delete(k);
+}, 10 * 60 * 1000).unref?.();
+
+// 历史版本预览(需要 release 快照)
+app.post('/api/games/:slug/releases/:releaseId/preview-session', adminAuth, (req, res) => {
+  const g = db.prepare('SELECT id, slug FROM games WHERE slug = ?').get(req.params.slug);
+  if (!g) return res.status(404).json({ error: '游戏不存在' });
+  const releaseId = Number(req.params.releaseId);
+  const rel = db.prepare('SELECT * FROM releases WHERE id = ? AND game_id = ?').get(releaseId, g.id);
+  if (!rel) return res.status(404).json({ error: 'release 不存在' });
+  const src = path.join(RELEASES_DIR, g.slug, String(rel.id));
+  if (!fs.existsSync(path.join(src, 'index.html'))) return res.status(404).json({ error: 'release 内容缺失' });
+  const token = issuePreviewSession(src, 'release', `release#${rel.id}`);
+  res.json({ ok: true, previewUrl: `/preview/${token}/`, expiresInMin: PREVIEW_TTL_MS / 60000, releaseId, version: rel.version });
+});
+
+// 草稿预览(当前暂存内容,未上线;上传中断/半成品不影响线上,可安全预览)
+app.post('/api/games/:slug/preview-session', adminAuth, (req, res) => {
+  const g = db.prepare('SELECT id, slug FROM games WHERE slug = ?').get(req.params.slug);
+  if (!g) return res.status(404).json({ error: '游戏不存在' });
+  const src = path.join(STAGING_DIR, g.slug);
+  if (!fs.existsSync(path.join(src, 'index.html'))) return res.status(404).json({ error: '暂存内容为空(先用 --stage 上传)' });
+  const token = issuePreviewSession(src, 'staging', `draft:${g.slug}`);
+  res.json({ ok: true, previewUrl: `/preview/${token}/`, expiresInMin: PREVIEW_TTL_MS / 60000, kind: 'staging' });
+});
+
+// 预览静态服务(公网可访问但仅限短时有效会话)
+app.use('/preview/:token', (req, res, next) => {
+  const s = previewSessions.get(req.params.token);
+  if (!s || s.expiresAt < Date.now()) return res.status(410).json({ error: 'preview 会话无效或已过期' });
+  req.preview = s;
+  next();
+}, (req, res, next) => {
+  express.static(req.preview.sourceDir, { index: 'index.html', extensions: ['html'], fallthrough: false })(req, res, next);
+});
+
+// 交付物下载(管理接口):web.zip / source.zip / validation-report.json / release.json / checksums.sha256
+const ARTIFACT_ALLOW = new Set(['web.zip', 'source.zip', 'validation-report.json', 'release.json', 'checksums.sha256']);
+app.get('/api/games/:slug/releases/:releaseId/artifacts/:file', adminAuth, (req, res) => {
+  const g = db.prepare('SELECT id, slug FROM games WHERE slug = ?').get(req.params.slug);
+  if (!g) return res.status(404).json({ error: '游戏不存在' });
+  const releaseId = Number(req.params.releaseId);
+  const rel = db.prepare('SELECT * FROM releases WHERE id = ? AND game_id = ?').get(releaseId, g.id);
+  if (!rel) return res.status(404).json({ error: 'release 不存在' });
+  const file = String(req.params.file || '');
+  if (!ARTIFACT_ALLOW.has(file)) return res.status(400).json({ error: '不允许的交付物文件名' });
+  const p = path.join(ARTIFACTS_DIR, g.slug, rel.version, file);
+  if (!fs.existsSync(p)) return res.status(404).json({ error: `交付物不存在: ${file}(需先用 game build/package 生成)` });
+  res.download(p, `${g.slug}-${rel.version}-${file}`);
 });
 
 // ---------- API: 试玩统计(公开) ----------

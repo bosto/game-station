@@ -45,7 +45,11 @@ game-station 是一个**游戏发布平台**:Agent 负责写游戏代码,平台�
 | POST | `/api/games/:slug/activate` | **原子激活暂存内容为新版本(旧版自动快照)** | ✅ |
 | POST | `/api/games/:slug/rollback` | **回滚到某个 release 快照** | ✅ |
 | POST | `/api/games/:slug/releases` | **把当前线上内容固化为 release 快照** | ✅ |
-| GET | `/api/games/:slug/releases` | release 列表 | ✅ |
+| GET | `/api/games/:slug/releases` | release 列表(含交付物/快照状态) | ✅ |
+| POST | `/api/games/:slug/preview-session` | **创建暂存草稿预览会话(短时 /preview/<token>)** | ✅ |
+| POST | `/api/games/:slug/releases/:id/preview-session` | 创建历史版本预览会话 | ✅ |
+| GET | `/api/games/:slug/releases/:id/artifacts/:file` | 下载交付物(web.zip/source.zip/校验报告等) | ✅ |
+| GET | `/preview/<token>/*` | 预览静态资源(短时有效,无需令牌) | 会话 |
 | POST | `/api/games/:slug/play` | 试玩计数 | ❌ |
 
 ### 原子发布与回滚(推荐)

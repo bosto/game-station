@@ -126,6 +126,8 @@ function cmdPublish(slug, opts) {
   const args = [publishScript, r.webDir, '--slug', slug, '--title', m.title, '--genre', m.genre || '未分类', '--source', 'game-cli'];
   if (opts.stage) args.push('--stage');
   if (opts.activate) { args.push('--activate'); args.push(opts.activate); }
+  else if (opts.stage) { /* 只暂存,不激活 */ }
+  else { args.push('--activate'); args.push(opts.version || m.version || '0.0.0'); } // 默认激活为 game.json 版本,与交付物目录对齐
   if (opts.publish) args.push('--publish');
   const res = spawnSync(process.execPath, args, { stdio: 'inherit' });
   process.exit(res.status ?? 1);

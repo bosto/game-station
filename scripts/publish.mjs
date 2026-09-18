@@ -120,8 +120,10 @@ async function main() {
     console.log(`  ⏭ 跳过 ${files.length - clean.length} 个备份文件(.bak*)`);
   }
 
+  // 上传模式:--activate 需要先暂存(--stage 或 --activate 都写入私密暂存,不动线上)
+  const useStaging = opts.stage || opts.activate;
   for (const f of clean) {
-    const stageQ = opts.stage ? '?stage=1' : '';
+    const stageQ = useStaging ? '?stage=1' : '';
     const res = await fetch(`${base}/api/games/${slug}/files/${f.rel}${stageQ}`, {
       method: 'PUT',
       headers: { ...headers, 'Content-Type': 'application/octet-stream' },
@@ -147,7 +149,7 @@ async function main() {
     console.log('✓ 已公开试玩 (playable=1)');
   }
 
-  console.log(`\n✅ 发布完成: ${base}/play/${slug}  (共 ${clean.length} 个文件, ${opts.stage ? '已暂存' : '已上线'})`);
+  console.log(`\n✅ 发布完成: ${base}/play/${slug}  (共 ${clean.length} 个文件, ${useStaging && !opts.activate ? '已暂存(未激活)' : '已上线'})`);
 }
 
 main().catch((e) => {

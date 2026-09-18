@@ -152,8 +152,62 @@ async function openDetail(slug) {
     : '<div style="color:var(--dim);font-size:12px">暂无数据</div>';
 
   $('detail-mask').classList.add('show');
+  loadReleases(slug);
 }
 function closeDetail() { $('detail-mask').classList.remove('show'); currentSlug = null; }
+
+// ---------- 版本与交付物(P2) ----------
+function relLink(path) {
+  return path + (path.includes('?') ? '&' : '?') + 'token=' + encodeURIComponent(token);
+}
+async function loadReleases(slug) {
+  const box = $('d-releases');
+  if (!slug) return;
+  try {
+    const d = await api(`/api/games/${slug}/releases`);
+    const rels = d.releases || [];
+    if (!rels.length) {
+      box.innerHTML = '暂无版本记录。用 <code>game publish</code> 或 <code>POST /activate</code> 发布后会出现。';
+      return;
+    }
+    box.innerHTML = rels.map((r) => {
+      const arts = (r.artifacts || []).map((a) =>
+        `<a class="art-link" target="_blank" href="${relLink(`/api/games/${slug}/releases/${r.id}/artifacts/${a.file}`)}" style="color:#9db0ff">⬇ ${a.file}</a>`).join('');
+      return `<div style="display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid var(--line);border-radius:10px;margin-bottom:8px;flex-wrap:wrap">
+        <b style="min-width:60px">${esc(r.version)}</b>
+        <span style="color:var(--dim);font-size:12px">#${r.id} · ${(r.created_at || '').slice(0, 19).replace('T', ' ')}</span>
+        ${r.hasSnapshot ? '<span style="color:#9db0ff;font-size:12px;border:1px solid #2b3b55;border-radius:20px;padding:2px 8px">可回滚</span>' : '<span style="color:#7ee081;font-size:12px;border:1px solid #2b4a35;border-radius:20px;padding:2px 8px">当前</span>'}
+        <span style="color:var(--dim);font-size:12px">${esc(r.note || '')}</span>
+        <span class="spacer"></span>
+        <button class="btn sm" onclick="previewRelease(${r.id})">👁 预览</button>
+        ${r.hasSnapshot ? `<button class="btn sm" style="border-color:#8a6d1f;color:#e8c45a" onclick="rollbackTo(${r.id})">↩ 回滚</button>` : ''}
+        ${arts}
+      </div>`;
+    }).join('');
+  } catch (e) {
+    box.innerHTML = '⚠️ 加载失败: ' + esc(e.message);
+  }
+}
+async function previewRelease(releaseId) {
+  try {
+    const d = await api(`/api/games/${currentSlug}/releases/${releaseId}/preview-session`, { method: 'POST' });
+    window.open(d.previewUrl, '_blank');
+  } catch (e) { toast('预览失败: ' + e.message); }
+}
+async function previewDraft() {
+  try {
+    const d = await api(`/api/games/${currentSlug}/preview-session`, { method: 'POST' });
+    window.open(d.previewUrl, '_blank');
+  } catch (e) { toast('暂存草稿预览失败: ' + (e.message || '')); }
+}
+async function rollbackTo(releaseId) {
+  if (!confirm('回滚到该版本?当前线上内容会切换到该版本。')) return;
+  try {
+    const d = await api(`/api/games/${currentSlug}/rollback`, { method: 'POST', body: JSON.stringify({ releaseId }) });
+    toast('已回滚到 ' + d.restored + ' ✅');
+    loadReleases(currentSlug);
+  } catch (e) { toast('回滚失败: ' + e.message); }
+}
 
 async function saveDetail() {
   await api(`/api/games/${currentSlug}`, {
