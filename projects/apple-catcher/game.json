@@ -1,0 +1,32 @@
+{
+  "id": "apple-catcher",
+  "title": "苹果丰收",
+  "version": "1.0.0",
+  "description": "移动篮子接住苹果,小心毒苹果和炸弹。连击加分,考验反应力的休闲小游戏。",
+  "genre": "休闲·反应",
+  "languages": ["zh"],
+  "engine": "single-html",
+  "entry": "index.html",
+  "input": ["mouse", "touch"],
+  "recommendedSize": { "width": 480, "height": 720 },
+  "orientation": "portrait",
+  "mobileSupported": true,
+  "externalNetwork": [],
+  "saveVersion": 1,
+  "resources": [
+    { "path": "index.html", "type": "runtime" },
+    { "path": "params.json", "type": "runtime" }
+  ],
+  "store": {
+    "cover": "store/cover.png",
+    "screenshots": ["store/screenshot-1.png"],
+    "video": "",
+    "instructions": "store/instructions.md",
+    "changelog": "store/changelog.md"
+  },
+  "platforms": {
+    "station": { "status": "live", "projectId": "apple-catcher" }
+  },
+  "licenses": "store/LICENSE.md",
+  "notes": "已在 game-station 上线(live)。参数见 params.json(lives/startSpeed/maxSpeed/speedRamp/spawnGap/minSpawnGap/appleScore/goldScore/comboTime/badCost/bombCost)。待办:封面/截图/操作说明尚未生成真实文件。"
+}

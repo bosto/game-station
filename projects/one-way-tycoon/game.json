@@ -1,0 +1,32 @@
+{
+  "id": "one-way-tycoon",
+  "title": "单行道大亨",
+  "version": "1.0.0",
+  "description": "怪物沿单行道进攻,沿途放机关改变前进方式形成连锁,五分钟一局。",
+  "genre": "塔防/经营",
+  "languages": ["zh"],
+  "engine": "single-html",
+  "entry": "index.html",
+  "input": ["mouse", "touch"],
+  "recommendedSize": { "width": 800, "height": 600 },
+  "orientation": "landscape",
+  "mobileSupported": true,
+  "externalNetwork": [],
+  "saveVersion": 1,
+  "resources": [
+    { "path": "index.html", "type": "runtime" },
+    { "path": "params.json", "type": "runtime" }
+  ],
+  "store": {
+    "cover": "store/cover.png",
+    "screenshots": ["store/screenshot-1.png"],
+    "video": "",
+    "instructions": "store/instructions.md",
+    "changelog": "store/changelog.md"
+  },
+  "platforms": {
+    "station": { "status": "live", "projectId": "one-way-tycoon" }
+  },
+  "licenses": "store/LICENSE.md",
+  "notes": "已在 game-station 上线(live)。参数见 params.json(startGold/maxLives/winTime/maxTraps 等,已放宽)。待办:完整玩法循环与较长会话实测、封面/截图/操作说明真实文件。"
+}

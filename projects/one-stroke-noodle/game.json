@@ -1,0 +1,32 @@
+{
+  "id": "one-stroke-noodle",
+  "title": "一笔泡面",
+  "version": "1.0.0",
+  "description": "一笔画变面条,煮到Q弹状态用筷子夹出。火候与时机博弈,治愈又上瘾。",
+  "genre": "益智/竞速",
+  "languages": ["zh"],
+  "engine": "single-html",
+  "entry": "index.html",
+  "input": ["mouse", "touch"],
+  "recommendedSize": { "width": 480, "height": 800 },
+  "orientation": "portrait",
+  "mobileSupported": true,
+  "externalNetwork": [],
+  "saveVersion": 1,
+  "resources": [
+    { "path": "index.html", "type": "runtime" },
+    { "path": "params.json", "type": "runtime" }
+  ],
+  "store": {
+    "cover": "store/cover.png",
+    "screenshots": ["store/screenshot-1.png"],
+    "video": "",
+    "instructions": "store/instructions.md",
+    "changelog": "store/changelog.md"
+  },
+  "platforms": {
+    "station": { "status": "live", "projectId": "one-stroke-noodle" }
+  },
+  "licenses": "store/LICENSE.md",
+  "notes": "已在 game-station 上线(live)。参数见 params.json(round1Time/round1Heat/round1Need/round2* 等,已放宽)。待办:触屏与横竖屏实测、封面/截图/操作说明真实文件。"
+}

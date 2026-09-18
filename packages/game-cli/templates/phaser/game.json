@@ -1,0 +1,32 @@
+{
+  "id": "REPLACE",
+  "title": "REPLACE",
+  "version": "0.1.0",
+  "description": "Phaser 3 模板游戏:移动平台接住下落的宝石",
+  "genre": "休闲",
+  "languages": ["zh"],
+  "engine": "phaser",
+  "entry": "index.html",
+  "input": ["mouse", "touch", "keyboard"],
+  "recommendedSize": { "width": 800, "height": 600 },
+  "orientation": "landscape",
+  "mobileSupported": true,
+  "externalNetwork": [],
+  "saveVersion": 1,
+  "resources": [
+    { "path": "index.html", "type": "runtime" },
+    { "path": "vendor/phaser.min.js", "type": "runtime" }
+  ],
+  "store": {
+    "cover": "",
+    "screenshots": [],
+    "video": "",
+    "instructions": "store/instructions.md",
+    "changelog": ""
+  },
+  "platforms": {
+    "station": { "status": "not-started" }
+  },
+  "licenses": "store/LICENSE.md",
+  "notes": "Phaser 3.90 本地 vendor 构建;替换 title/description;补充 store/ 素材后再发布。"
+}

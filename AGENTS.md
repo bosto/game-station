@@ -74,6 +74,22 @@ curl -X POST $T/api/games/my-game/rollback -H "x-admin-token: $TOK" -H "Content-
 `node scripts/backup.mjs` 用 SQLite 一致性备份 API 生成 `game-station-backups/<时间戳>/`
 (数据库 + 游戏文件 + 配置),不直接复制正在写入的 db。
 
+### 统一命令 game-cli(P1)
+
+每款游戏在 `projects/<slug>/` 下有 `game.json` 契约(JSON Schema 校验)。统一命令:
+
+```bash
+npm run game -- new <slug> --template <html-canvas|phaser>   # 脚手架
+npm run game -- check <slug> [--json]                        # 校验契约+入口+store 素材
+npm run game -- build <slug>                                  # 构建到 artifacts/<slug>/<version>/web
+npm run game -- package <slug> --targets web,source           # 产出 web.zip / source.zip
+npm run game -- publish <slug> [--stage] [--activate v] [--publish]  # 构建并发布到平台
+npm run game -- dev <slug> --port 4000                        # 本地静态服务试玩
+npm run game -- list
+```
+
+发布走构建产物(只含运行时文件),配合平台 `--stage/--activate` 原子发布。
+
 ### 发布流程(纯 curl,等价于发布脚本)
 
 ```bash
@@ -122,8 +138,11 @@ curl -s "$T/api/games?public=1" | python3 -m json.tool
 ```
 game-station/
 ├── server.js           # 服务(Express + SQLite),只做发布/托管/统计
-├── scripts/publish.mjs # Agent 发布脚本(纯 Node,无依赖)
-├── games/<slug>/       # 游戏文件(由 API/脚本写入)
+├── scripts/            # publish.mjs 发布器 / backup.mjs 备份 / ci-smoke.sh 冒烟
+├── packages/game-cli/  # 统一命令 game(new/check/build/package/publish/dev/list)+ 模板
+├── projects/<slug>/    # 游戏开发源(game.json 契约 + index.html + store 素材)
+├── games/<slug>/       # 平台发布的线上内容(由 API/脚本写入,玩家访问)
+├── artifacts/<slug>/<version>/  # 构建产物(web.zip/source.zip/校验报告,不入库)
 ├── public/             # 公开主页 / 试玩页 / 管理后台
 └── config.json         # 端口 / 管理员账号 / 令牌
 ```

@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Phaser 模板</title>
+<style> html,body { margin:0; height:100%; background:#0f1220; } canvas { display:block; } </style>
+</head>
+<body>
+<script src="./vendor/phaser.min.js"></script>
+<script>
+// Phaser 3 最小玩法:方向键/拖动控制挡板接住下落的宝石。鼠标 + 触屏 + 键盘。
+(() => {
+  const W = 800, H = 600;
+  let score = 0, lives = 3;
+  const scene = {
+    key: 'main',
+    create() {
+      this.paddle = this.add.rectangle(W/2, H - 30, 120, 16, 0x5b8cff);
+      this.physics.add.existing(this.paddle, true);
+      this.paddle.body.setCollideWorldBounds(true);
+      this.cursors = this.input.keyboard.createCursorKeys();
+      this.scoreText = this.add.text(16, 12, '得分 0   生命 3', { font: '20px system-ui', fill: '#cfe0ff' });
+      this.time.addEvent({ delay: 900, loop: true, callback: () => this.spawnGem() });
+      this.input.on('pointermove', (p) => {
+        this.paddle.x = Phaser.Math.Clamp(p.x, 60, W - 60);
+        this.paddle.body.updateFromGameObject();
+      });
+      this.spawnGem();
+    },
+    update() {
+      const speed = 5.5;
+      if (this.cursors.left.isDown) this.paddle.x -= speed;
+      if (this.cursors.right.isDown) this.paddle.x += speed;
+      this.paddle.body.updateFromGameObject();
+      this.children.each((obj) => {
+        if (obj.body && obj.body.isCircle) {
+          if (obj.y > H + 20) { obj.destroy(); lives--; this.refresh(); if (lives <= 0) this.restart(); }
+          else if (this.physics.overlap(obj, this.paddle)) { obj.destroy(); score++; this.refresh(); }
+        }
+      });
+    },
+    spawnGem() {
+      const g = this.add.circle(Phaser.Math.Between(30, W - 30), 20, 12, 0x7ee081);
+      this.physics.add.existing(g);
+      g.body.setCircle(12);
+      g.body.setVelocityY(160);
+    },
+    refresh() { this.scoreText.setText(`得分 ${score}   生命 ${lives}`); },
+    restart() {
+      score = 0; lives = 3; this.refresh();
+      this.children.each((o) => { if (o.body && o.body.isCircle) o.destroy(); });
+    },
+  };
+  new Phaser.Game({
+    type: Phaser.AUTO, parent: document.body, width: W, height: H,
+    backgroundColor: '#1a2038', scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
+    physics: { default: 'arcade', arcade: { gravity: { y: 0 }, debug: false } },
+    scene: [scene],
+  });
+})();
+</script>
+</body>
+</html>

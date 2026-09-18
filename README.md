@@ -44,14 +44,21 @@ game-station/
 ├── config.json         # 配置(端口、公网开关、管理员账号/令牌)
 ├── AGENTS.md           # ★ 给 Agent 的发布说明(接口 + 规范 + FAQ)
 ├── lib/
-│   ├── db.js           # 数据库 schema(games / stats)
+│   ├── db.js           # 数据库 schema(games / stats / releases)
 │   └── config.js       # 配置读写
 ├── scripts/
-│   └── publish.mjs     # ★ Agent 发布器:上传本地目录到平台(纯 Node,无依赖)
-├── games/              # 游戏文件,每个游戏一个目录 <slug>/index.html
+│   ├── publish.mjs     # Agent 发布器:上传本地目录到平台(支持 --stage/--activate 原子发布)
+│   ├── backup.mjs      # 一致性备份(数据库 + 游戏 + 配置)
+│   └── ci-smoke.sh     # 隔离冒烟测试(临时 data/games/config 目录)
+├── packages/game-cli/  # 统一命令 game(new/check/build/package/publish/dev/list)+ 模板
+├── projects/<slug>/    # 游戏开发源(game.json 契约 + index.html + store 素材)
+├── games/<slug>/       # 平台发布的线上内容(玩家访问 /g/<slug>/)
+├── artifacts/<slug>/<version>/  # 构建产物(web.zip/source.zip/校验报告,不入库)
 ├── public/             # 前台页面(主页 / 试玩页 / 后台)
-└── data/station.db     # SQLite 数据(自动创建)
+└── data/station.db     # SQLite 数据(自动创建;含 releases 发布快照记录)
 ```
+
+> 开发在 `projects/<slug>/` 进行,发布走 `npm run game -- publish <slug>`,线上内容落在 `games/<slug>/`。
 
 ## 配置 (config.json)
 

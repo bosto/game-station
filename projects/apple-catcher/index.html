@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>苹果丰收 · Apple Catch</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: linear-gradient(180deg, #87ceeb 0%, #b0e0e6 60%, #7ec850 60%, #5aa83d 100%);
+    min-height: 100vh; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; font-family: system-ui, sans-serif;
+    touch-action: none; overflow: hidden;
+  }
+  #wrap { position: relative; width: 100%; max-width: 420px; }
+  canvas { display: block; width: 100%; height: auto; border-radius: 12px; box-shadow: 0 8px 30px rgba(0,0,0,.25); background: #87ceeb; }
+  #hud { display: flex; justify-content: space-between; width: 100%; padding: 10px 4px; color: #2d5016; font-weight: 700; font-size: 16px; }
+  #overlay {
+    position: absolute; inset: 0; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 14px; text-align: center;
+    background: rgba(20,40,10,.55); color: #fff; border-radius: 12px; backdrop-filter: blur(2px);
+  }
+  #overlay h1 { font-size: 26px; letter-spacing: 2px; text-shadow: 0 2px 6px rgba(0,0,0,.4); }
+  #overlay p { font-size: 14px; opacity: .9; max-width: 300px; line-height: 1.6; }
+  #overlay .score { font-size: 22px; font-weight: 800; color: #ffd75e; }
+  button {
+    background: #ffb400; border: none; color: #3a2600; font-weight: 800; font-size: 18px;
+    padding: 12px 34px; border-radius: 30px; cursor: pointer; box-shadow: 0 4px 0 #cc8f00;
+    transition: transform .08s;
+  }
+  button:active { transform: translateY(3px); box-shadow: 0 1px 0 #cc8f00; }
+  .hint { font-size: 12px; opacity: .8; }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <div id="hud"><span>🍎 <b id="score">0</b></span><span id="combo">连击 x1</span><span>❤️ <b id="lives">3</b></span></div>
+  <canvas id="cv"></canvas>
+  <div id="overlay">
+    <h1>🍎 苹果丰收</h1>
+    <p>移动篮子接住苹果<br>小心毒苹果和炸弹!连击加分</p>
+    <button id="startBtn">开始游戏</button>
+    <span class="hint">鼠标/手指左右滑动移动篮子 · 按空格暂停</span>
+  </div>
+</div>
+
+<script>
+(function () {
+  const cv = document.getElementById('cv');
+  const ctx = cv.getContext('2d');
+  const scoreEl = document.getElementById('score');
+  const livesEl = document.getElementById('lives');
+  const comboEl = document.getElementById('combo');
+  const overlay = document.getElementById('overlay');
+  const startBtn = document.getElementById('startBtn');
+
+  const W = 420, H = 620;
+  const DPR = Math.min(window.devicePixelRatio || 1, 2);
+  cv.width = W * DPR; cv.height = H * DPR;
+  ctx.scale(DPR, DPR);
+
+  // ===== 难度参数(支持 params.json 动态覆盖,无需改代码) =====
+  const DEFAULT_PARAMS = {
+    lives: 3, startSpeed: 260, maxSpeed: 640, speedRamp: 6,
+    spawnGap: 0.9, minSpawnGap: 0.35, gapRamp: 120,
+    appleScore: 5, goldScore: 10, comboTime: 3,
+    badCost: 1, bombCost: 2,
+  };
+  let P = { ...DEFAULT_PARAMS };
+  const paramsReady = fetch('params.json')
+    .then((r) => (r.ok ? r.json() : null))
+    .then((d) => { if (d && d.params) for (const k in d.params) if (k in DEFAULT_PARAMS) P[k] = d.params[k].value; })
+    .catch(() => {});
+  // ===== 参数化结束 =====
+
+  let state = 'idle'; // idle | playing | over
+  let score = 0, lives = 3, combo = 0, comboTime = 0;
+  let basket = { x: W / 2, w: 92, y: H - 70 };
+  let items = [];
+  let spawnTimer = 0, speed = 260, spawnGap = 0.9;
+  let last = 0;
+  let muted = false;
+
+  // ---- 音频:WebAudio 合成,无需素材 ----
+  let ac = null;
+  function beep(freq, dur, type, vol) {
+    try {
+      ac = ac || new (window.AudioContext || window.webkitAudioContext)();
+      const o = ac.createOscillator(), g = ac.createGain();
+      o.type = type || 'sine'; o.frequency.value = freq;
+      g.gain.setValueAtTime(vol || 0.08, ac.currentTime);
+      g.gain.exponentialRampToValueAtTime(0.0001, ac.currentTime + dur);
+      o.connect(g); g.connect(ac.destination);
+      o.start(); o.stop(ac.currentTime + dur);
+    } catch (e) {}
+  }
+  const sfx = {
+    catch: () => beep(660 + combo * 40, 0.12, 'triangle', 0.09),
+    bad:   () => beep(180, 0.25, 'sawtooth', 0.12),
+    miss:  () => beep(110, 0.3, 'square', 0.08),
+    over:  () => { beep(440, 0.2, 'square'); setTimeout(() => beep(220, 0.4, 'square'), 160); },
+  };
+
+  // ---- 输入:鼠标 + 触屏 ----
+  let dragging = false;
+  function setBasketFromEvent(e) {
+    const rect = cv.getBoundingClientRect();
+    const x = ((e.touches ? e.touches[0].clientX : e.clientX) - rect.left) / rect.width * W;
+    basket.x = Math.max(basket.w / 2, Math.min(W - basket.w / 2, x));
+  }
+  cv.addEventListener('mousedown', (e) => { dragging = true; setBasketFromEvent(e); });
+  window.addEventListener('mousemove', (e) => { if (dragging && state === 'playing') setBasketFromEvent(e); });
+  window.addEventListener('mouseup', () => (dragging = false));
+  cv.addEventListener('touchstart', (e) => { e.preventDefault(); setBasketFromEvent(e); }, { passive: false });
+  cv.addEventListener('touchmove', (e) => { e.preventDefault(); if (state === 'playing') setBasketFromEvent(e); }, { passive: false });
+  window.addEventListener('keydown', (e) => {
+    if (e.key === ' ') { e.preventDefault(); if (state === 'playing') togglePause(); }
+    if (e.key === 'ArrowLeft') basket.x = Math.max(basket.w / 2, basket.x - 34);
+    if (e.key === 'ArrowRight') basket.x = Math.min(W - basket.w / 2, basket.x + 34);
+  });
+
+  // ---- 游戏对象 ----
+  function spawn() {
+    const types = ['apple', 'apple', 'apple', 'gold', 'bad', 'bomb'];
+    const t = types[Math.floor(Math.random() * types.length)];
+    items.push({
+      type: t, x: 30 + Math.random() * (W - 60),
+      y: -24, vy: speed * (0.8 + Math.random() * 0.5),
+      r: t === 'gold' ? 13 : 15, wob: Math.random() * 6.28,
+    });
+  }
+
+  function reset() {
+    score = 0; lives = P.lives; combo = 0; items = [];
+    speed = P.startSpeed; spawnGap = P.spawnGap;
+    scoreEl.textContent = 0; livesEl.textContent = 3; comboEl.textContent = '连击 x1';
+  }
+
+  // ---- 绘制 ----
+  function drawScene() {
+    // 天空与草地
+    ctx.clearRect(0, 0, W, H);
+    const sky = ctx.createLinearGradient(0, 0, 0, H * 0.55);
+    sky.addColorStop(0, '#7ec8ff'); sky.addColorStop(1, '#cdeeff');
+    ctx.fillStyle = sky; ctx.fillRect(0, 0, W, H * 0.55);
+    const grass = ctx.createLinearGradient(0, H * 0.55, 0, H);
+    grass.addColorStop(0, '#6fbf4a'); grass.addColorStop(1, '#4f9a33');
+    ctx.fillStyle = grass; ctx.fillRect(0, H * 0.55, W, H * 0.45);
+    // 云
+    ctx.fillStyle = 'rgba(255,255,255,.85)';
+    for (const [cx, cy, s] of [[80, 90, 1], [300, 130, .7], [200, 60, .5]]) {
+      ctx.beginPath();
+      ctx.arc(cx, cy, 22 * s, 0, 7); ctx.arc(cx + 24 * s, cy - 8 * s, 18 * s, 0, 7);
+      ctx.arc(cx + 48 * s, cy, 20 * s, 0, 7); ctx.fill();
+    }
+    // 落物
+    for (const it of items) {
+      it.wob += 0.08;
+      const sway = Math.sin(it.wob) * 6;
+      const x = it.x + sway;
+      if (it.type === 'apple') drawApple(x, it.y, it.r);
+      else if (it.type === 'gold') drawApple(x, it.y, it.r, '#ffd75e');
+      else if (it.type === 'bad') drawBad(x, it.y, it.r);
+      else drawBomb(x, it.y, it.r);
+    }
+    // 篮子
+    drawBasket();
+  }
+
+  function drawApple(x, y, r, color) {
+    ctx.fillStyle = color || '#e53935';
+    ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fill();
+    ctx.fillStyle = '#7a2d1f';
+    ctx.beginPath(); ctx.arc(x, y, r * 0.42, 0, 7); ctx.fill();
+    ctx.strokeStyle = '#4e342e'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(x, y - r * 0.6); ctx.quadraticCurveTo(x + 6, y - r * 1.5, x + 13, y - r * 1.2); ctx.stroke();
+    ctx.fillStyle = '#4caf50';
+    ctx.beginPath(); ctx.ellipse(x + 14, y - r * 1.4, 7, 4, 0.5, 0, 7); ctx.fill();
+  }
+
+  function drawBad(x, y, r) {
+    ctx.fillStyle = '#9b59b6';
+    ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fill();
+    ctx.fillStyle = '#6c3483';
+    ctx.font = 'bold 16px sans-serif'; ctx.textAlign = 'center';
+    ctx.fillText('☠', x, y + 6);
+  }
+
+  function drawBomb(x, y, r) {
+    ctx.fillStyle = '#263238';
+    ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fill();
+    ctx.fillStyle = '#ffd54f';
+    ctx.beginPath(); ctx.arc(x + 8, y - 6, 4, 0, 7); ctx.fill();
+    ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(x - r * 0.4, y); ctx.lineTo(x + r * 0.4, y); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(x, y - r * 0.4); ctx.lineTo(x, y + r * 0.4); ctx.stroke();
+  }
+
+  function drawBasket() {
+    ctx.fillStyle = '#a85a32';
+    ctx.beginPath();
+    ctx.moveTo(basket.x - basket.w / 2, basket.y - 8);
+    ctx.lineTo(basket.x - basket.w / 2 + 8, basket.y + 14);
+    ctx.lineTo(basket.x + basket.w / 2 - 8, basket.y + 14);
+    ctx.lineTo(basket.x + basket.w / 2, basket.y - 8);
+    ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#7d4223';
+    ctx.fillRect(basket.x - basket.w / 2 + 6, basket.y - 16, basket.w - 12, 10);
+    ctx.strokeStyle = '#5d2f17'; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(basket.x - basket.w / 2 + 2, basket.y - 8); ctx.lineTo(basket.x + basket.w / 2 - 2, basket.y - 8); ctx.stroke();
+  }
+
+  // ---- 主循环 ----
+  let paused = false;
+  function togglePause() { paused = !paused; }
+
+  function update(dt) {
+    if (paused) return;
+    comboTime -= dt;
+    if (comboTime <= 0) combo = 0;
+
+    spawnTimer -= dt;
+    if (spawnTimer <= 0) { spawn(); spawnTimer = spawnGap * (0.7 + Math.random() * 0.6); }
+
+    // 随时间加快节奏
+    speed = Math.min(P.maxSpeed, P.startSpeed + elapsed() * P.speedRamp);
+    spawnGap = Math.max(P.minSpawnGap, P.spawnGap - elapsed() / P.gapRamp);
+
+    for (let i = items.length - 1; i >= 0; i--) {
+      const it = items[i];
+      it.y += it.vy * dt;
+      // 命中检测
+      const inBasket =
+        it.y > basket.y - 18 && it.y < basket.y + 22 &&
+        Math.abs(it.x - basket.x) < basket.w / 2 + it.r * 0.5;
+      if (inBasket) {
+        items.splice(i, 1);
+        if (it.type === 'apple' || it.type === 'gold') {
+          const base = it.type === 'gold' ? P.goldScore : P.appleScore;
+          combo = comboTime > 0 ? combo + 1 : 1;
+          comboTime = P.comboTime;
+          score += base * combo;
+          scoreEl.textContent = score;
+          comboEl.textContent = `连击 x${combo}`;
+          sfx.catch();
+        } else if (it.type === 'bad') {
+          lives -= P.badCost; livesEl.textContent = lives; sfx.bad();
+        } else {
+          lives -= P.bombCost; livesEl.textContent = lives; sfx.bad();
+        }
+        if (lives <= 0) { lives = 0; livesEl.textContent = 0; gameOver(); return; }
+      } else if (it.y > H + 30) {
+        items.splice(i, 1);
+        if (it.type === 'apple' || it.type === 'gold') {
+          lives -= P.badCost; livesEl.textContent = lives; sfx.miss();
+          combo = 0; comboEl.textContent = '连击 x1';
+          if (lives <= 0) { lives = 0; gameOver(); return; }
+        }
+      }
+    }
+  }
+
+  let t0 = 0;
+  function elapsed() { return (performance.now() - t0) / 1000; }
+
+  function loop(ts) {
+    const dt = Math.min((ts - last) / 1000, 0.05);
+    last = ts;
+    if (state === 'playing') update(dt);
+    drawScene();
+    requestAnimationFrame(loop);
+  }
+
+  function gameOver() {
+    state = 'over'; sfx.over();
+    overlay.style.display = 'flex';
+    overlay.innerHTML = `
+      <h1>🍎 游戏结束</h1>
+      <div class="score">得分 ${score}</div>
+      <p>${score >= 100 ? '农场大丰收!🎉' : score >= 50 ? '不错的收成!再接再厉' : '别灰心,再来一筐!'}</p>
+      <button id="againBtn">再来一局</button>
+      <span class="hint">最高连击加分,别让苹果落地</span>`;
+    document.getElementById('againBtn').onclick = () => { startGame(); };
+  }
+
+  async function startGame() {
+    await paramsReady;
+    reset();
+    state = 'playing';
+    overlay.style.display = 'none';
+    t0 = performance.now();
+    if (ac && ac.state === 'suspended') ac.resume();
+    beep(520, 0.15, 'triangle'); beep(780, 0.15, 'triangle');
+  }
+
+  startBtn.onclick = startGame;
+  overlay.style.display = 'flex';
+  last = performance.now();
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>

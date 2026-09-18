@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Canvas 模板</title>
+<style>
+  html,body { margin:0; height:100%; background:#0f1220; display:flex; align-items:center; justify-content:center; }
+  canvas { background:#1a2038; border-radius:12px; touch-action:none; max-width:96vw; max-height:92vh; }
+</style>
+</head>
+<body>
+<canvas id="c" width="960" height="540"></canvas>
+<script>
+// 极简 Canvas 游戏:点击/触摸小球加分,漏接扣生命。鼠标 + 触屏都支持。
+(() => {
+  const c = document.getElementById('c');
+  const ctx = c.getContext('2d');
+  const W = c.width, H = c.height;
+  let score = 0, lives = 3, over = false;
+  const ball = { x: W/2, y: H/2, r: 24, vx: 2.2, vy: 1.8 };
+
+  function pointFromEvent(e) {
+    const r = c.getBoundingClientRect();
+    const p = e.touches ? e.touches[0] : e;
+    return { x: (p.clientX - r.left) * (W / r.width), y: (p.clientY - r.top) * (H / r.height) };
+  }
+  function tap(e) {
+    e.preventDefault();
+    if (over) return;
+    const p = pointFromEvent(e);
+    const d = Math.hypot(p.x - ball.x, p.y - ball.y);
+    if (d <= ball.r + 14) score++;
+    else lives--;
+    if (lives <= 0) over = true;
+  }
+  c.addEventListener('pointerdown', tap);
+
+  function loop() {
+    if (!over) {
+      ball.x += ball.vx; ball.y += ball.vy;
+      if (ball.x < ball.r || ball.x > W - ball.r) ball.vx *= -1;
+      if (ball.y < ball.r || ball.y > H - ball.r) ball.vy *= -1;
+    }
+    ctx.clearRect(0, 0, W, H);
+    ctx.fillStyle = '#1a2038'; ctx.fillRect(0, 0, W, H);
+    ctx.beginPath(); ctx.arc(ball.x, ball.y, ball.r, 0, Math.PI * 2);
+    ctx.fillStyle = over ? '#e05656' : '#5b8cff'; ctx.fill();
+    ctx.fillStyle = '#cfe0ff'; ctx.font = '22px system-ui';
+    ctx.fillText(`得分 ${score}   生命 ${lives}`, 24, 40);
+    if (over) {
+      ctx.fillStyle = '#fff'; ctx.font = '44px system-ui';
+      ctx.fillText('游戏结束,刷新重开', W/2 - 160, H/2);
+    }
+    requestAnimationFrame(loop);
+  }
+  loop();
+})();
+</script>
+</body>
+</html>

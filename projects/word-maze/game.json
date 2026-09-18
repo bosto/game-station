@@ -1,0 +1,32 @@
+{
+  "id": "word-maze",
+  "title": "词林迷阵",
+  "version": "1.0.0",
+  "description": "在汉字魔法森林中,通过组合/拆分汉字改变环境并推动剧情,例如‘日’+‘月’=‘明’。核心循环:阅读故事→选择字词操作→观察反馈→推进章节。",
+  "genre": "文字冒险+解谜",
+  "languages": ["zh"],
+  "engine": "single-html",
+  "entry": "index.html",
+  "input": ["mouse", "touch"],
+  "recommendedSize": { "width": 480, "height": 854 },
+  "orientation": "portrait",
+  "mobileSupported": true,
+  "externalNetwork": [],
+  "saveVersion": 1,
+  "resources": [
+    { "path": "index.html", "type": "runtime" },
+    { "path": "params.json", "type": "runtime" }
+  ],
+  "store": {
+    "cover": "store/cover.png",
+    "screenshots": ["store/screenshot-1.png"],
+    "video": "",
+    "instructions": "store/instructions.md",
+    "changelog": "store/changelog.md"
+  },
+  "platforms": {
+    "station": { "status": "live", "projectId": "word-maze" }
+  },
+  "licenses": "store/LICENSE.md",
+  "notes": "已在 game-station 上线(live)。P1 已补上缺失的 params.json(8 个参数,消除预期内 404)。待办:封面/截图/操作说明真实文件。"
+}

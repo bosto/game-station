@@ -1,0 +1,31 @@
+{
+  "id": "REPLACE",
+  "title": "REPLACE",
+  "version": "0.1.0",
+  "description": "Canvas 模板游戏:点击移动的小圆球得分",
+  "genre": "休闲",
+  "languages": ["zh"],
+  "engine": "html-canvas",
+  "entry": "index.html",
+  "input": ["mouse", "touch"],
+  "recommendedSize": { "width": 960, "height": 540 },
+  "orientation": "landscape",
+  "mobileSupported": true,
+  "externalNetwork": [],
+  "saveVersion": 1,
+  "resources": [
+    { "path": "index.html", "type": "runtime" }
+  ],
+  "store": {
+    "cover": "",
+    "screenshots": [],
+    "video": "",
+    "instructions": "store/instructions.md",
+    "changelog": ""
+  },
+  "platforms": {
+    "station": { "status": "not-started" }
+  },
+  "licenses": "store/LICENSE.md",
+  "notes": "替换 title/description;补充 store/ 封面与截图后再发布。"
+}

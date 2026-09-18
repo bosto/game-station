@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "game-station.game.schema.json",
+  "title": "Game Manifest (game.json)",
+  "description": "每款游戏的开发/发布契约:定义元数据、入口、构建、平台与授权。校验由 packages/game-cli 执行(game check)。",
+  "type": "object",
+  "required": ["id", "title", "version", "engine", "entry"],
+  "additionalProperties": true,
+  "properties": {
+    "id": { "type": "string", "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$", "description": "slug,小写字母/数字/连字符" },
+    "title": { "type": "string" },
+    "version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$", "description": "语义化版本" },
+    "description": { "type": "string" },
+    "genre": { "type": "string" },
+    "languages": { "type": "array", "items": { "type": "string" } },
+    "engine": { "enum": ["html-canvas", "phaser", "single-html", "custom"], "description": "运行引擎/技术栈" },
+    "entry": { "type": "string", "default": "index.html", "description": "构建输出根入口(相对 projects/<id>/)" },
+    "build": {
+      "type": "object",
+      "description": "若需要源码构建(多模块),填写构建命令与输出目录;单文件游戏可省略",
+      "properties": {
+        "command": { "type": "string" },
+        "outputDir": { "type": "string" }
+      }
+    },
+    "input": { "type": "array", "items": { "enum": ["mouse", "touch", "keyboard", "gamepad"] } },
+    "recommendedSize": {
+      "type": "object",
+      "properties": { "width": { "type": "integer" }, "height": { "type": "integer" } }
+    },
+    "orientation": { "enum": ["landscape", "portrait", "any"] },
+    "mobileSupported": { "type": "boolean" },
+    "externalNetwork": { "type": "array", "items": { "type": "string" }, "description": "运行时外部网络依赖,如 CDN;尽量为空" },
+    "saveVersion": { "type": "integer", "description": "本地存档结构版本,破坏性变更时递增" },
+    "resources": {
+      "type": "array",
+      "description": "运行时资源清单(相对 projects/<id>/)",
+      "items": {
+        "type": "object",
+        "required": ["path"],
+        "properties": {
+          "path": { "type": "string" },
+          "type": { "enum": ["runtime", "press-kit", "source", "asset"], "default": "runtime" }
+        }
+      }
+    },
+    "store": {
+      "type": "object",
+      "description": "宣传资料位置(相对 projects/<id>/store/)",
+      "properties": {
+        "cover": { "type": "string" },
+        "screenshots": { "type": "array", "items": { "type": "string" } },
+        "video": { "type": "string" },
+        "instructions": { "type": "string" },
+        "changelog": { "type": "string" }
+      }
+    },
+    "platforms": {
+      "type": "object",
+      "description": "目标平台与适配状态",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "status": { "enum": ["not-started", "adapting", "ready", "submitted", "reviewing", "live"] },
+          "projectId": { "type": "string" },
+          "note": { "type": "string" }
+        },
+        "required": ["status"]
+      }
+    },
+    "licenses": { "type": "string", "description": "代码/素材授权清单位置(相对 projects/<id>/),缺省或未知标为待核实" },
+    "notes": { "type": "string", "description": "开发备注:已知问题、验证步骤等" }
+  }
+}
