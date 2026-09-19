@@ -162,6 +162,9 @@ async function main() {
     const rels = r.data?.releases || [];
     check('releases 记录新版本行', r.status === 200 && rels[0]?.version === 'v2', r.text.slice(0, 120));
     check('releases 含可回滚快照', rels.some((x) => x.hasSnapshot === true), r.text.slice(0, 120));
+    r = await call(`/api/games/${slug}/deployments`);
+    const deps = r.data?.deployments || [];
+    check('deployments 记录激活事件', r.status === 200 && deps.some((x) => x.action === 'activate' && x.version === 'v2'), r.text.slice(0, 120));
   }
 
   // 8. 公开列表可见(playable 已在前面设置)

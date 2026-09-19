@@ -326,6 +326,7 @@ app.post('/api/games/:slug/releases', adminAuth, (req, res) => {
   const dest = path.join(RELEASES_DIR, g.slug, String(r.lastInsertRowid));
   fs.mkdirSync(dest, { recursive: true });
   fs.cpSync(liveDir, dest, { recursive: true, filter: (src) => !path.basename(src).startsWith('.') });
+  recordDeployment(g.id, 'snapshot', version, r.lastInsertRowid, note);
   res.json({ ok: true, release: { id: r.lastInsertRowid, version, note } });
 });
 
@@ -373,6 +374,7 @@ app.post('/api/games/:slug/activate', adminAuth, (req, res) => {
   // 3) 总是为新版本记录 release 行(版本历史 + 交付物按版本追溯;内容即 live,无需快照)
   const nv = db.prepare('INSERT INTO releases (game_id, version, note, size_bytes) VALUES (?,?,?,?)')
     .run(g.id, version, note ? `activated: ${note}` : 'activated', newSize);
+  recordDeployment(g.id, 'activate', version, nv.lastInsertRowid, note);
   db.prepare("UPDATE games SET updated_at = datetime('now','localtime') WHERE id = ?").run(g.id);
   res.json({ ok: true, version, releaseId: previousReleaseId, currentReleaseId: nv.lastInsertRowid, staged: false });
 });
@@ -391,6 +393,7 @@ app.post('/api/games/:slug/rollback', adminAuth, (req, res) => {
   if (fs.existsSync(liveDir)) fs.rmSync(liveDir, { recursive: true, force: true });
   fs.mkdirSync(path.dirname(liveDir), { recursive: true });
   fs.cpSync(src, liveDir, { recursive: true });
+  recordDeployment(g.id, 'rollback', rel.version, rel.id, 'restore release');
   db.prepare("UPDATE games SET updated_at = datetime('now','localtime') WHERE id = ?").run(g.id);
   res.json({ ok: true, restored: rel.version, releaseId: rel.id });
 });
@@ -458,6 +461,20 @@ app.get('/api/games/:slug/releases/:releaseId/artifacts/:file', adminAuth, (req,
   const p = path.join(ARTIFACTS_DIR, g.slug, rel.version, file);
   if (!fs.existsSync(p)) return res.status(404).json({ error: `交付物不存在: ${file}(需先用 game build/package 生成)` });
   res.download(p, `${g.slug}-${rel.version}-${file}`);
+});
+
+// ---------- 部署事件记录 ----------
+function recordDeployment(gameId, action, version, releaseId, note) {
+  db.prepare('INSERT INTO deployments (game_id, action, version, release_id, note) VALUES (?,?,?,?,?)')
+    .run(gameId, action, version || '', releaseId || 0, note || '');
+}
+app.get('/api/games/:slug/deployments', adminAuth, (req, res) => {
+  const g = db.prepare('SELECT id, slug FROM games WHERE slug = ?').get(req.params.slug);
+  if (!g) return res.status(404).json({ error: '游戏不存在' });
+  const rows = db.prepare(
+    'SELECT id, action, version, release_id, note, created_at FROM deployments WHERE game_id = ? ORDER BY id DESC LIMIT 100'
+  ).all(g.id);
+  res.json({ deployments: rows });
 });
 
 // ---------- API: 试玩统计(公开) ----------
